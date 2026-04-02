@@ -21,7 +21,9 @@ docker compose up -d --build
 
 Приоритет на клиенте: значение из **`RustDesk2.toml`** (`inventory-report-url`), если пусто — зашитый при сборке URL.
 
-Локальная сборка: `INVENTORY_REPORT_URL='https://…/api/v1/report' cargo build …`
+Можно указать только базу, например `http://192.168.0.213:1026` или с слэшем в конце — клиент сам допишет путь **`/api/v1/report`**.
+
+Локальная сборка: `INVENTORY_REPORT_URL='https://…' cargo build …`
 
 ## Настройка RustDesk
 

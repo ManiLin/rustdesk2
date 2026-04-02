@@ -7,10 +7,13 @@ use hbb_common::{
     tokio,
 };
 use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const FIRST_DELAY: Duration = Duration::from_secs(15);
 const INTERVAL: Duration = Duration::from_secs(300);
+
+static LOGGED_URL_EMPTY: AtomicBool = AtomicBool::new(false);
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start() {
@@ -34,6 +37,12 @@ async fn run_loop() {
         }
         let url = Config::get_inventory_report_url();
         if url.is_empty() {
+            if !LOGGED_URL_EMPTY.swap(true, Ordering::SeqCst) {
+                log::info!(
+                    "inventory portal: URL не задан — отчёты выключены. Задайте inventory-report-url в RustDesk2.toml \
+                     или пересоберите с INVENTORY_REPORT_URL (см. README портала)."
+                );
+            }
             tokio::time::sleep(Duration::from_secs(60)).await;
             continue;
         }
@@ -99,7 +108,27 @@ async fn send_report(url: &str, token: &str) -> hbb_common::ResultType<()> {
     .to_string();
     let auth = format!("Authorization: Bearer {}", token);
     let resp = crate::post_request(url.to_owned(), body, &auth).await?;
-    log::debug!("inventory report response: {}", resp);
+    let r = resp.trim();
+    if r == "unauthorized" {
+        log::warn!(
+            "inventory portal: 401 unauthorized — токен на клиенте не совпадает с INVENTORY_DEVICE_TOKEN на сервере \
+             (по умолчанию должен совпадать с RS_PUB_KEY в вашей сборке hbb_common)."
+        );
+        return Ok(());
+    }
+    if r.contains("\"ok\"") && r.contains("true") {
+        log::info!(
+            "inventory portal: отчёт принят сервером (rustdesk_id={})",
+            rustdesk_id
+        );
+    } else if r == "db error" {
+        log::warn!("inventory portal: сервер вернул ошибку БД");
+    } else {
+        log::warn!(
+            "inventory portal: неожиданный ответ (проверьте URL до /api/v1/report): {}",
+            if r.len() > 240 { format!("{}…", &r[..240]) } else { r.to_owned() }
+        );
+    }
     Ok(())
 }
 

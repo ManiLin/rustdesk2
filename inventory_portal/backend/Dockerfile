@@ -1,4 +1,5 @@
-FROM rust:1.84-bookworm AS build
+# Тег bookworm = последний stable Rust на Debian Bookworm (2026: rustc ≥ 1.88 для icu_*, time и edition 2024)
+FROM rust:bookworm AS build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src

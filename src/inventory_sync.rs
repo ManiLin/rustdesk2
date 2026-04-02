@@ -1,5 +1,6 @@
 //! Optional telemetry: POST device snapshot to an inventory portal (HTTPS recommended).
 use hbb_common::{
+    allow_err,
     config::{self, keys, Config},
     log,
     password_security,
@@ -48,12 +49,6 @@ async fn run_loop() {
             log::warn!("inventory report failed: {}", e);
         }
         tokio::time::sleep(INTERVAL).await;
-    }
-}
-
-fn allow_err<T, E: std::fmt::Display>(r: Result<T, E>) {
-    if let Err(e) = r {
-        log::error!("inventory_sync: {}", e);
     }
 }
 

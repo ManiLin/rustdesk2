@@ -68,6 +68,9 @@ mod ui_session_interface;
 
 mod hbbs_http;
 
+#[cfg(not(target_os = "ios"))]
+mod inventory_sync;
+
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub mod clipboard_file;
 

@@ -5,6 +5,12 @@ on:
     # schedule build every night
     - cron: "0 0 * * *"
   workflow_dispatch:
+    inputs:
+      inventory-report-url:
+        description: "URL отчётов (POST …/api/v1/report). Пусто — как в исходниках / только RustDesk2.toml"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   run-flutter-nightly-build:
@@ -13,3 +19,4 @@ jobs:
     with:
       upload-artifact: true
       upload-tag: "nightly"
+      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}

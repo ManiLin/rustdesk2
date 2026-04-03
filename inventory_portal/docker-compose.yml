@@ -4,10 +4,10 @@ services:
     container_name: inv-portal-api
     environment:
       DATABASE_URL: sqlite:/data/inventory.db?mode=rwc
-      # По умолчанию совпадает с RS_PUB_KEY / DEFAULT_INVENTORY_REPORT_TOKEN в libs/hbb_common/src/config.rs
-      INVENTORY_DEVICE_TOKEN: ${INVENTORY_DEVICE_TOKEN:
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:
-      JWT_SECRET: ${JWT_SECRET:
+      # Значения подставляются из файла `.env` в этой же папке (или из окружения shell).
+      INVENTORY_DEVICE_TOKEN: ${INVENTORY_DEVICE_TOKEN}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
       BIND_ADDR: 0.0.0.0:8080
       RUST_LOG: inventory_portal_api=info,tower_http=info
     volumes:

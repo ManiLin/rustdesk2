@@ -1,212 +1,682 @@
-/* Тёмная тема в духе MCP / shadcn dark (oklch) */
+/*
+ * Стиль в духе Windows 11 / Fluent Design (по мотивам MCP 21st Magic: светлая тема, Mica, акцент).
+ * Segoe UI Variable есть в Windows; на Linux — Inter как близкая геометрия.
+ */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --destructive: oklch(0.704 0.191 22.216);
-  --ring: oklch(0.556 0 0);
+  --win-radius: 8px;
+  --win-radius-sm: 4px;
+  --win-radius-lg: 12px;
+  /* Mica-подобный фон */
+  --win-bg-layer: #e8e8ec;
+  --win-bg-mica: linear-gradient(
+      160deg,
+      rgba(243, 243, 243, 0.92) 0%,
+      rgba(232, 234, 237, 0.98) 45%,
+      rgba(240, 242, 245, 0.95) 100%
+    ),
+    var(--win-bg-layer);
+  --win-surface: #ffffff;
+  --win-surface-alt: #f9f9f9;
+  --win-border: #e5e5e5;
+  --win-border-strong: #d1d1d1;
+  --win-text: #1a1a1a;
+  --win-text-secondary: #5c5c5c;
+  --win-text-tertiary: #8a8a8a;
+  --win-accent: #0067c0;
+  --win-accent-hover: #005a9e;
+  --win-accent-pressed: #004578;
+  --win-accent-light: rgba(0, 103, 192, 0.08);
+  --win-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 1px rgba(0, 0, 0, 0.08);
+  --win-shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --win-font: "Segoe UI Variable", "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+  --win-font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  color-scheme: light;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--background);
-  color: var(--foreground);
-  line-height: 1.5;
+  font-family: var(--win-font);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--win-text);
+  background: var(--win-bg-mica);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
   min-height: 100vh;
 }
 
-input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: oklch(1 0 0 / 6%);
-  color: var(--foreground);
-  font-size: 0.9rem;
-}
-
-input:focus {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-
-button {
-  cursor: pointer;
-  border-radius: var(--radius);
-  border: none;
-  padding: 0.5rem 1rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-button.secondary {
-  background: var(--muted);
-  color: var(--foreground);
-}
-
-.card {
-  background: var(--card);
-  color: var(--card-foreground);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) + 4px);
-  padding: 1.5rem;
-  max-width: 420px;
-  width: 100%;
-}
-
-.layout {
+/* === Оболочка приложения (как окно Win11) === */
+.win11-app {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-.header {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border);
+.win11-titlebar {
+  height: 32px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--win-text-secondary);
+  border-bottom: 1px solid var(--win-border);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  user-select: none;
 }
 
-.header h1 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.main {
+.win11-body {
   flex: 1;
-  padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
-  width: 100%;
+  display: flex;
+  min-height: 0;
 }
 
-.login-wrap {
+/* Навигация слева (как в «Параметры») */
+.win11-nav {
+  width: 260px;
+  flex-shrink: 0;
+  padding: 12px 8px;
+  border-right: 1px solid var(--win-border);
+  background: rgba(252, 252, 252, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.win11-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 20px;
+}
+
+.win11-nav-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--win-radius-sm);
+  background: linear-gradient(135deg, var(--win-accent), #0086f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: var(--win-shadow-card);
+}
+
+.win11-nav-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--win-text);
+  line-height: 1.2;
+}
+
+.win11-nav-sub {
+  font-size: 11px;
+  color: var(--win-text-tertiary);
+}
+
+.win11-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin: 2px 6px;
+  border-radius: var(--win-radius-sm);
+  color: var(--win-text);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--win-accent-light);
+  border: 1px solid transparent;
+}
+
+.win11-nav-item svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0.85;
+}
+
+.win11-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 24px 32px 40px;
+  max-width: 1600px;
+}
+
+.win11-page-title {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  color: var(--win-text);
+}
+
+.win11-page-desc {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--win-text-secondary);
+}
+
+.fluent-upload-card {
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.fluent-upload-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.fluent-upload-header h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.fluent-upload-header p {
+  margin: 0;
+  max-width: 880px;
+  font-size: 13px;
+  color: var(--win-text-secondary);
+}
+
+.fluent-upload-version-block {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--win-border);
+}
+
+.fluent-upload-version-input {
+  max-width: 280px;
+  height: 36px;
+  min-height: 36px;
+}
+
+.fluent-upload-version-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--win-text-secondary);
+  line-height: 1.45;
+  max-width: 720px;
+}
+
+.fluent-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.fluent-upload-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fluent-upload-field-label {
+  display: block;
+  margin-bottom: 6px;
+  min-height: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--win-text-secondary);
+}
+
+/* Симметричный ряд контролов (паттерн из MCP Magic: две колонки, высота 40px) */
+.fluent-upload-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.fluent-upload-row .fluent-btn {
+  height: 40px;
+  min-height: 40px;
+}
+
+.fluent-upload-pick {
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 0 14px;
+}
+
+.fluent-btn-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.fluent-file-name-plate {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--win-border-strong);
+  border-radius: var(--win-radius);
+  background: var(--win-surface-alt);
+  font-size: 12px;
+  color: var(--win-text-secondary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fluent-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.fluent-upload-link-input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 40px;
+  min-height: 40px;
+}
+
+.fluent-upload-action {
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.fluent-upload-action-text {
+  white-space: nowrap;
+}
+
+.fluent-text-input::placeholder {
+  color: var(--win-text-tertiary);
+}
+
+.fluent-inline-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fluent-text-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--win-border-strong);
+  border-radius: var(--win-radius);
+  background: var(--win-surface);
+  color: var(--win-text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.fluent-text-input:focus {
+  outline: none;
+  border-color: var(--win-accent);
+  box-shadow: 0 0 0 1px var(--win-accent);
+}
+
+.fluent-upload-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--win-text-secondary);
+}
+
+/* Метаданные под обеими колонками — визуально ровнее */
+.fluent-upload-meta-full {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+  padding-top: 2px;
+  border-top: 1px solid var(--win-border);
+}
+
+/* Command bar */
+.win11-commandbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.fluent-search-wrap {
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+  position: relative;
+}
+
+.fluent-search-wrap svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--win-text-tertiary);
+  pointer-events: none;
+}
+
+input.fluent-search {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 38px;
+  border: 1px solid var(--win-border-strong);
+  border-radius: var(--win-radius);
+  background: var(--win-surface);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--win-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input.fluent-search::placeholder {
+  color: var(--win-text-tertiary);
+}
+
+input.fluent-search:hover {
+  border-color: #c4c4c4;
+}
+
+input.fluent-search:focus {
+  outline: none;
+  border-color: var(--win-accent);
+  box-shadow: 0 0 0 1px var(--win-accent);
+}
+
+/* Кнопки Fluent */
+.fluent-btn {
+  height: 32px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--win-radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.fluent-btn-primary {
+  background: var(--win-accent);
+  color: #fff;
+}
+
+.fluent-btn-primary:hover:not(:disabled) {
+  background: var(--win-accent-hover);
+}
+
+.fluent-btn-primary:active:not(:disabled) {
+  background: var(--win-accent-pressed);
+}
+
+.fluent-btn-secondary {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--win-text);
+  border: 1px solid var(--win-border-strong);
+}
+
+.fluent-btn-secondary:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.fluent-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fluent-btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.fluent-btn-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Карточка / таблица */
+.fluent-card {
+  background: var(--win-surface);
+  border: 1px solid var(--win-border);
+  border-radius: var(--win-radius-lg);
+  box-shadow: var(--win-shadow-card);
+  overflow: hidden;
+}
+
+.fluent-table-wrap {
+  overflow-x: auto;
+}
+
+table.fluent-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.fluent-table thead th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--win-text-secondary);
+  background: var(--win-surface-alt);
+  border-bottom: 1px solid var(--win-border);
+  white-space: nowrap;
+}
+
+.fluent-table tbody td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+}
+
+.fluent-table tbody tr:hover td {
+  background: rgba(0, 103, 192, 0.04);
+}
+
+.fluent-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.mono {
+  font-family: var(--win-font-mono);
+  font-size: 11px;
+}
+
+.fluent-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--win-accent-light);
+  color: var(--win-accent);
+  border: 1px solid rgba(0, 103, 192, 0.15);
+}
+
+.fluent-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--win-text-secondary);
+  font-size: 13px;
+}
+
+.fluent-error {
+  color: #c42b1c;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: rgba(196, 43, 28, 0.08);
+  border-radius: var(--win-radius-sm);
+  border: 1px solid rgba(196, 43, 28, 0.2);
+}
+
+.fluent-success {
+  color: #0f6a3b;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: rgba(15, 106, 59, 0.08);
+  border-radius: var(--win-radius-sm);
+  border: 1px solid rgba(15, 106, 59, 0.18);
+}
+
+/* Экран входа */
+.win11-login {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 24px;
 }
 
-.login-wrap .card h2 {
-  margin: 0 0 0.25rem;
-  font-size: 1.25rem;
-}
-
-.login-wrap .card p {
-  margin: 0 0 1rem;
-  color: var(--muted-foreground);
-  font-size: 0.875rem;
-}
-
-.field {
-  margin-bottom: 1rem;
-}
-
-.field label {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--muted-foreground);
-  margin-bottom: 0.35rem;
-}
-
-.error {
-  color: var(--destructive);
-  font-size: 0.85rem;
-  margin-top: 0.5rem;
-}
-
-.toolbar {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.toolbar input[type="search"] {
-  max-width: 280px;
-}
-
-.table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-}
-
-table {
+.win11-login-card {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8rem;
+  max-width: 400px;
+  background: var(--win-surface);
+  border: 1px solid var(--win-border);
+  border-radius: var(--win-radius-lg);
+  box-shadow: var(--win-shadow-elevated);
+  padding: 32px;
 }
 
-th,
-td {
-  text-align: left;
-  padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-}
-
-th {
-  background: oklch(0.18 0 0);
+.win11-login-card h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
   font-weight: 600;
-  color: var(--muted-foreground);
-  white-space: nowrap;
+  letter-spacing: -0.02em;
 }
 
-tr:last-child td {
-  border-bottom: none;
+.win11-login-card .lead {
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: var(--win-text-secondary);
+  line-height: 1.5;
 }
 
-tr:hover td {
-  background: oklch(1 0 0 / 3%);
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-  font-size: 0.7rem;
+.win11-login-card label {
+  display: block;
+  font-size: 12px;
   font-weight: 600;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  color: var(--win-text-secondary);
+  margin-bottom: 6px;
 }
 
-.empty {
-  text-align: center;
-  padding: 3rem 1rem;
-  color: var(--muted-foreground);
+.win11-login-card input[type="password"] {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  margin-bottom: 20px;
+  border: 1px solid var(--win-border-strong);
+  border-radius: var(--win-radius);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.win11-login-card input[type="password"]:focus {
+  outline: none;
+  border-color: var(--win-accent);
+  box-shadow: 0 0 0 1px var(--win-accent);
+}
+
+.win11-login-card .fluent-btn-primary {
+  width: 100%;
+  height: 38px;
+}
+
+@media (max-width: 900px) {
+  .win11-body {
+    flex-direction: column;
+  }
+
+  .win11-nav {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--win-border);
+  }
+
+  .win11-main {
+    padding: 16px;
+  }
+
+  .win11-page-title {
+    font-size: 22px;
+  }
+
+  .fluent-upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fluent-upload-row {
+    flex-wrap: wrap;
+  }
+
+  .fluent-upload-pick {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .fluent-file-name-plate {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .fluent-upload-link-input {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .fluent-upload-action {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+  }
+
+  .fluent-inline-input {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

@@ -94,6 +94,8 @@ pub mod input {
 
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
+    /// Версия с портала учёта (для прямой ссылки на exe, без GitHub-разбора URL).
+    pub static ref SOFTWARE_UPDATE_PORTAL_VERSION: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
@@ -940,19 +942,139 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 }
 
 pub fn check_software_update() {
-    if is_custom_client() {
+    let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
+    if !config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
         return;
     }
-    let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
-    if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
-        std::thread::spawn(move || allow_err!(do_check_software_update()));
+    // Кастомное имя приложения отключает официальный канал обновлений, но портал учёта может отдавать свою сборку.
+    if is_custom_client() {
+        #[cfg(target_os = "windows")]
+        {
+            if !config::Config::get_inventory_software_update_meta_url().is_empty() {
+                std::thread::spawn(move || allow_err!(do_check_inventory_portal_software_update()));
+            }
+        }
+        return;
     }
+    std::thread::spawn(move || allow_err!(do_refresh_software_update_offer()));
+}
+
+/// Публичный endpoint портала: прямой exe без схемы GitHub `tag`/`download`.
+#[inline]
+pub fn is_inventory_portal_update_url(url: &str) -> bool {
+    url.contains("/api/v1/downloads/rustdesk/windows/latest")
+}
+
+pub fn do_refresh_software_update_offer() -> hbb_common::ResultType<()> {
+    #[cfg(target_os = "windows")]
+    {
+        if !config::Config::get_inventory_software_update_meta_url().is_empty() {
+            return do_check_inventory_portal_software_update();
+        }
+    }
+    do_check_software_update()
+}
+
+#[derive(serde::Deserialize)]
+struct InventoryPortalUpdateMeta {
+    available: bool,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    download_path: Option<String>,
+}
+
+/// Проверка обновления по `inventory-update-meta-url` или производному от `inventory-report-url` (только Windows / exe с портала).
+#[tokio::main(flavor = "current_thread")]
+pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultType<()> {
+    let meta_url = config::Config::get_inventory_software_update_meta_url();
+    if meta_url.is_empty() {
+        return Ok(());
+    }
+    *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
+
+    let proxy_conf = Config::get_socks();
+    let tls_url = get_url_for_tls(&meta_url, &proxy_conf);
+    let tls_type = get_cached_tls_type(tls_url);
+    let is_tls_not_cached = tls_type.is_none();
+    let tls_type = tls_type.unwrap_or(TlsType::Rustls);
+    let client = create_http_client_async(tls_type, false);
+    let resp = match client.get(&meta_url).send().await {
+        Ok(resp) => {
+            upsert_tls_cache(tls_url, tls_type, false);
+            resp
+        }
+        Err(err) => {
+            if is_tls_not_cached && err.is_request() {
+                let tls_type = TlsType::NativeTls;
+                let client = create_http_client_async(tls_type, false);
+                let resp = client.get(&meta_url).send().await?;
+                upsert_tls_cache(tls_url, tls_type, false);
+                resp
+            } else {
+                return Err(err.into());
+            }
+        }
+    };
+    if !resp.status().is_success() {
+        log::warn!(
+            "inventory portal update meta HTTP {}",
+            resp.status()
+        );
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        return Ok(());
+    }
+    let bytes = resp.bytes().await?;
+    let meta: InventoryPortalUpdateMeta = serde_json::from_slice(&bytes)?;
+    if !meta.available {
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        return Ok(());
+    }
+    let Some(ver) = meta.version.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        return Ok(());
+    };
+    let rel_path = meta
+        .download_path
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| "/api/v1/downloads/rustdesk/windows/latest".to_string());
+    let download_url = if rel_path.starts_with("http://") || rel_path.starts_with("https://") {
+        rel_path
+    } else {
+        match url::Url::parse(&meta_url).and_then(|base| base.join(rel_path.trim())) {
+            Ok(u) => u.to_string(),
+            Err(e) => {
+                log::error!("inventory portal update: bad download URL: {}", e);
+                *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+                return Ok(());
+            }
+        }
+    };
+
+    if get_version_number(&ver) > get_version_number(crate::VERSION) {
+        *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = ver.clone();
+        #[cfg(feature = "flutter")]
+        {
+            let mut m = HashMap::new();
+            m.insert("name", "check_software_update_finish");
+            m.insert("url", &download_url);
+            if let Ok(data) = serde_json::to_string(&m) {
+                let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
+            }
+        }
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = download_url;
+    } else {
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
+    }
+    Ok(())
 }
 
 // No need to check `danger_accept_invalid_cert` for now.
 // Because the url is always `https://api.rustdesk.com/version/latest`.
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
+    *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
     let proxy_conf = Config::get_socks();
@@ -996,6 +1118,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
     } else {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
     }
     Ok(())
 }

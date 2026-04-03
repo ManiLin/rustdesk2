@@ -1,4 +1,11 @@
-use crate::{common::do_check_software_update, hbbs_http::create_http_client_with_url};
+use crate::{
+    common::{
+        do_refresh_software_update_offer,
+        is_inventory_portal_update_url,
+        SOFTWARE_UPDATE_PORTAL_VERSION,
+    },
+    hbbs_http::create_http_client_with_url,
+};
 use hbb_common::{bail, config, log, ResultType};
 use std::{
     io::Write,
@@ -123,7 +130,7 @@ fn check_update(manually: bool) -> ResultType<()> {
     if !(manually || config::Config::get_bool_option(config::keys::OPTION_ALLOW_AUTO_UPDATE)) {
         return Ok(());
     }
-    if do_check_software_update().is_err() {
+    if do_refresh_software_update_offer().is_err() {
         // ignore
         return Ok(());
     }
@@ -132,23 +139,50 @@ fn check_update(manually: bool) -> ResultType<()> {
     if update_url.is_empty() {
         log::debug!("No update available.");
     } else {
-        let download_url = update_url.replace("tag", "download");
-        let version = download_url.split('/').last().unwrap_or_default();
+        let portal = is_inventory_portal_update_url(&update_url);
+        let version_from_portal = SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap().clone();
+
         #[cfg(target_os = "windows")]
-        let download_url = if cfg!(feature = "flutter") {
-            format!(
-                "{}/rustdesk-{}-x86_64.{}",
-                download_url,
-                version,
-                if update_msi { "msi" } else { "exe" }
-            )
+        let update_msi = if portal {
+            false
         } else {
-            format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
+            update_msi
         };
-        log::debug!("New version available: {}", &version);
+
+        let (download_url, version_owned) = if portal {
+            let v = if version_from_portal.is_empty() {
+                download_url_fallback_version(&update_url)
+            } else {
+                version_from_portal
+            };
+            (update_url.clone(), v)
+        } else {
+            let download_url = update_url.replace("tag", "download");
+            let version = download_url.split('/').last().unwrap_or_default().to_string();
+            #[cfg(target_os = "windows")]
+            let download_url = if cfg!(feature = "flutter") {
+                format!(
+                    "{}/rustdesk-{}-x86_64.{}",
+                    download_url,
+                    version,
+                    if update_msi { "msi" } else { "exe" }
+                )
+            } else {
+                format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
+            };
+            #[cfg(not(target_os = "windows"))]
+            let download_url = download_url;
+            (download_url, version)
+        };
+        log::debug!("New version available: {}", version_owned);
         let client = create_http_client_with_url(&download_url);
-        let Some(file_path) = get_download_file_from_url(&download_url) else {
-            bail!("Failed to get the file path from the URL: {}", download_url);
+        let file_path = if portal {
+            std::env::temp_dir().join("rustdesk-inventory-update.exe")
+        } else {
+            match get_download_file_from_url(&download_url) {
+                Some(p) => p,
+                None => bail!("Failed to get the file path from the URL: {}", download_url),
+            }
         };
         let mut is_file_exists = false;
         if file_path.exists() {
@@ -190,7 +224,7 @@ fn check_update(manually: bool) -> ResultType<()> {
         // before the download, but not empty after the download.
         if has_no_active_conns() {
             #[cfg(target_os = "windows")]
-            update_new_version(update_msi, &version, &file_path);
+            update_new_version(update_msi, version_owned.as_str(), &file_path);
         }
     }
     Ok(())
@@ -287,4 +321,12 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {
     let filename = url.split('/').last()?;
     Some(std::env::temp_dir().join(filename))
+}
+
+fn download_url_fallback_version(url: &str) -> String {
+    url.split('/')
+        .last()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("inventory-portal")
+        .to_string()
 }

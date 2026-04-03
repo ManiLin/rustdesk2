@@ -8,7 +8,7 @@ rust-version = "1.88"
 [workspace]
 
 [dependencies]
-axum = { version = "0.8", features = ["macros", "json"] }
+axum = { version = "0.8", features = ["macros", "json", "multipart"] }
 chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = "9"
 serde = { version = "1", features = ["derive"] }

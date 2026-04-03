@@ -5,9 +5,9 @@ services:
     environment:
       DATABASE_URL: sqlite:/data/inventory.db?mode=rwc
       # По умолчанию совпадает с RS_PUB_KEY / DEFAULT_INVENTORY_REPORT_TOKEN в libs/hbb_common/src/config.rs
-      INVENTORY_DEVICE_TOKEN: ${INVENTORY_DEVICE_TOKEN:-ykYXbcaCNMz4wTqV0cw4K02a4jJRMIrFgB72a+4wSmk=}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-iTW354AhpFdJ}
-      JWT_SECRET: ${JWT_SECRET:-ea913f21c21d2db3204b58b896b3fdbbb59f88e4ca6ff79037bd07040f357bb7}
+      INVENTORY_DEVICE_TOKEN: ${INVENTORY_DEVICE_TOKEN:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:
+      JWT_SECRET: ${JWT_SECRET:
       BIND_ADDR: 0.0.0.0:8080
       RUST_LOG: inventory_portal_api=info,tower_http=info
     volumes:

@@ -1,7 +1,12 @@
 use axum::{
-    extract::State,
-    http::{header::AUTHORIZATION, StatusCode},
-    response::IntoResponse,
+    body::Body,
+    handler::Handler,
+    extract::{DefaultBodyLimit, Multipart, State},
+    http::{
+        header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
+        StatusCode,
+    },
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -11,11 +16,17 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::env;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncWriteExt;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+const RUSTDESK_WINDOWS_DOWNLOAD_PATH: &str = "/api/v1/downloads/rustdesk/windows/latest";
+const RUSTDESK_WINDOWS_STORED_FILENAME: &str = "rustdesk-windows-latest.exe";
+const DEFAULT_MAX_UPLOAD_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone)]
 struct AppState {
@@ -23,6 +34,8 @@ struct AppState {
     device_token: String,
     admin_password: String,
     jwt_secret: String,
+    uploads_dir: PathBuf,
+    max_upload_bytes: u64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -85,11 +98,99 @@ struct Claims {
     exp: usize,
 }
 
+#[derive(Debug, Serialize)]
+struct DownloadAssetDto {
+    available: bool,
+    file_name: Option<String>,
+    file_size: Option<u64>,
+    uploaded_at: Option<String>,
+    download_path: String,
+    /// Версия, объявленная при загрузке (для клиентского автообновления).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    published_version: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SoftwareUpdateMetaDto {
+    available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    download_path: String,
+}
+
 fn now_ts() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+fn format_ts(ts: i64) -> String {
+    chrono::DateTime::from_timestamp(ts, 0)
+        .map(|d| d.to_rfc3339())
+        .unwrap_or_default()
+}
+
+fn system_time_to_ts(value: SystemTime) -> i64 {
+    value
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_else(|_| now_ts())
+}
+
+fn rustdesk_windows_binary_path(state: &AppState) -> PathBuf {
+    state
+        .uploads_dir
+        .join(RUSTDESK_WINDOWS_STORED_FILENAME)
+}
+
+fn filename_has_exe_extension(filename: &str) -> bool {
+    Path::new(filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false)
+}
+
+async fn get_published_version(pool: &SqlitePool) -> Option<String> {
+    sqlx::query_scalar::<_, String>("SELECT version FROM rustdesk_windows_release WHERE id = 1")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+async fn get_download_asset_info(state: &AppState) -> anyhow::Result<DownloadAssetDto> {
+    let path = rustdesk_windows_binary_path(state);
+    let published_version = get_published_version(&state.pool).await;
+    if !tokio::fs::try_exists(&path).await? {
+        return Ok(DownloadAssetDto {
+            available: false,
+            file_name: None,
+            file_size: None,
+            uploaded_at: None,
+            download_path: RUSTDESK_WINDOWS_DOWNLOAD_PATH.to_string(),
+            published_version: None,
+        });
+    }
+
+    let metadata = tokio::fs::metadata(&path).await?;
+    let uploaded_at = metadata
+        .modified()
+        .ok()
+        .map(system_time_to_ts)
+        .unwrap_or_else(now_ts);
+
+    Ok(DownloadAssetDto {
+        available: true,
+        file_name: Some("rustdesk.exe".to_string()),
+        file_size: Some(metadata.len()),
+        uploaded_at: Some(format_ts(uploaded_at)),
+        download_path: RUSTDESK_WINDOWS_DOWNLOAD_PATH.to_string(),
+        published_version,
+    })
 }
 
 fn verify_device_token(state: &AppState, auth_header: Option<&str>) -> bool {
@@ -258,6 +359,243 @@ async fn devices_handler(
     }
 }
 
+async fn admin_download_info_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let auth = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if !verify_admin_jwt(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+
+    match get_download_asset_info(&state).await {
+        Ok(info) => Json(info).into_response(),
+        Err(e) => {
+            tracing::error!("download info: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "download info error").into_response()
+        }
+    }
+}
+
+async fn admin_upload_rustdesk_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let auth = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if !verify_admin_jwt(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+
+    let temp_name = format!(
+        ".rustdesk-upload-{}-{}.tmp",
+        now_ts(),
+        std::process::id()
+    );
+    let temp_path = state.uploads_dir.join(&temp_name);
+    let final_path = rustdesk_windows_binary_path(&state);
+
+    let mut form_version = String::new();
+    let mut uploaded_filename = None::<String>;
+    let mut total_size = 0_u64;
+    let mut file_written = false;
+
+    loop {
+        let next_field = match multipart.next_field().await {
+            Ok(field) => field,
+            Err(e) => {
+                tracing::warn!("multipart error: {}", e);
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return (StatusCode::BAD_REQUEST, "invalid multipart payload").into_response();
+            }
+        };
+
+        let Some(mut field) = next_field else {
+            break;
+        };
+
+        match field.name() {
+            Some("version") => {
+                if let Ok(t) = field.text().await {
+                    form_version = t;
+                }
+            }
+            Some("file") => {
+                let filename = field.file_name().unwrap_or("rustdesk.exe").to_string();
+                if !filename_has_exe_extension(&filename) {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        "only .exe files are allowed",
+                    )
+                        .into_response();
+                }
+
+                let mut file = match tokio::fs::File::create(&temp_path).await {
+                    Ok(file) => file,
+                    Err(e) => {
+                        tracing::error!("create temp upload file: {}", e);
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
+                    }
+                };
+
+                loop {
+                    let chunk = match field.chunk().await {
+                        Ok(chunk) => chunk,
+                        Err(e) => {
+                            tracing::warn!("multipart chunk error: {}", e);
+                            let _ = tokio::fs::remove_file(&temp_path).await;
+                            return (StatusCode::BAD_REQUEST, "invalid upload chunk").into_response();
+                        }
+                    };
+
+                    let Some(chunk) = chunk else {
+                        break;
+                    };
+
+                    total_size += chunk.len() as u64;
+                    if total_size > state.max_upload_bytes {
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        return (
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            "file is too large",
+                        )
+                            .into_response();
+                    }
+
+                    if let Err(e) = file.write_all(&chunk).await {
+                        tracing::error!("write upload file: {}", e);
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
+                    }
+                }
+
+                if let Err(e) = file.flush().await {
+                    tracing::error!("flush upload file: {}", e);
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
+                }
+
+                uploaded_filename = Some(filename);
+                file_written = true;
+            }
+            _ => {}
+        }
+    }
+
+    if !file_written || total_size == 0 {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return (StatusCode::BAD_REQUEST, "file is required").into_response();
+    }
+
+    let version_trim = form_version.trim();
+    if version_trim.is_empty() {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return (StatusCode::BAD_REQUEST, "version is required").into_response();
+    }
+
+    if tokio::fs::try_exists(&final_path).await.unwrap_or(false) {
+        if let Err(e) = tokio::fs::remove_file(&final_path).await {
+            tracing::error!("remove old rustdesk.exe: {}", e);
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
+        }
+    }
+
+    if let Err(e) = tokio::fs::rename(&temp_path, &final_path).await {
+        tracing::error!("move rustdesk.exe upload: {}", e);
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
+    }
+
+    let ts = now_ts();
+    if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO rustdesk_windows_release (id, version, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            version = excluded.version,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(version_trim)
+    .bind(ts)
+    .execute(&state.pool)
+    .await
+    {
+        tracing::error!("save published version: {}", e);
+        let _ = tokio::fs::remove_file(&final_path).await;
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to save version metadata",
+        )
+            .into_response();
+    }
+
+    tracing::info!(
+        file_name = uploaded_filename.as_deref().unwrap_or("rustdesk.exe"),
+        bytes = total_size,
+        version = %version_trim,
+        "rustdesk.exe uploaded"
+    );
+
+    match get_download_asset_info(&state).await {
+        Ok(info) => (StatusCode::OK, Json(info)).into_response(),
+        Err(e) => {
+            tracing::error!("download info after upload: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "upload saved but status failed").into_response()
+        }
+    }
+}
+
+async fn public_software_update_meta_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let path_ok = tokio::fs::try_exists(rustdesk_windows_binary_path(&state))
+        .await
+        .unwrap_or(false);
+    let published = get_published_version(&state.pool).await;
+    let available = path_ok && published.is_some();
+    let body = SoftwareUpdateMetaDto {
+        available,
+        version: if available { published } else { None },
+        download_path: RUSTDESK_WINDOWS_DOWNLOAD_PATH.to_string(),
+    };
+    Json(body).into_response()
+}
+
+async fn public_download_rustdesk_handler(
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let path = rustdesk_windows_binary_path(&state);
+    let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
+    if !exists {
+        return (StatusCode::NOT_FOUND, "file not found").into_response();
+    }
+
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("read rustdesk.exe for download: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "download error").into_response();
+        }
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(CONTENT_DISPOSITION, "attachment; filename=\"rustdesk.exe\"")
+        .header(CONTENT_LENGTH, bytes.len().to_string())
+        .header("Cache-Control", "no-store, no-cache, must-revalidate")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "download response error").into_response()
+        })
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
@@ -279,6 +617,13 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("JWT_SECRET not set, using dev default");
         "dev-secret-change-in-production-min-32-chars!!".to_string()
     });
+    let uploads_dir =
+        PathBuf::from(env::var("UPLOAD_DIR").unwrap_or_else(|_| "/data/downloads".to_string()));
+    let max_upload_bytes = env::var("MAX_UPLOAD_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES);
 
     let opts = database_url
         .parse::<SqliteConnectOptions>()?
@@ -307,12 +652,31 @@ async fn main() -> anyhow::Result<()> {
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS rustdesk_windows_release (
+            id INTEGER PRIMARY KEY NOT NULL,
+            version TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+
     let state = Arc::new(AppState {
         pool,
         device_token,
         admin_password,
         jwt_secret,
+        uploads_dir,
+        max_upload_bytes,
     });
+
+    // Axum по умолчанию режет тело запроса для Multipart (~2 МБ) — без этого большой rustdesk.exe не доходит до хендлера.
+    let upload_body_limit = usize::try_from(max_upload_bytes).unwrap_or(usize::MAX);
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -324,6 +688,20 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/report", post(report_handler))
         .route("/api/v1/auth/login", post(login_handler))
         .route("/api/v1/devices", get(devices_handler))
+        .route(
+            "/api/v1/admin/downloads/rustdesk",
+            get(admin_download_info_handler).post(
+                admin_upload_rustdesk_handler.layer(DefaultBodyLimit::max(upload_body_limit)),
+            ),
+        )
+        .route(
+            "/api/v1/downloads/rustdesk/windows/meta",
+            get(public_software_update_meta_handler),
+        )
+        .route(
+            "/api/v1/downloads/rustdesk/windows/latest",
+            get(public_download_rustdesk_handler),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);

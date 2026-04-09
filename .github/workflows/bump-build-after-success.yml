@@ -1,0 +1,51 @@
+# After a successful Flutter CI / nightly build, increment +build.N in Cargo.toml and workflows.
+# Commit uses [skip ci] so "Full Flutter CI" does not run again on that push (see flutter-ci.yml).
+
+name: Bump build number after successful build
+
+on:
+  workflow_run:
+    workflows:
+      - Flutter Nightly Build
+      - Full Flutter CI
+    types:
+      - completed
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-build-metadata
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump +build.N
+        run: python3 .github/scripts/bump_build_metadata.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml .github/workflows/flutter-build.yml .github/workflows/playground.yml
+          if git diff --cached --quiet; then
+            echo "No version change; skipping commit."
+            exit 0
+          fi
+          git commit -m "chore: bump +build after successful CI [skip ci]"
+          git push origin HEAD:master

@@ -42,6 +42,24 @@ g_arpsystemcomponent = {
 def default_revision_version():
     return int(datetime.datetime.now().timestamp() / 60)
 
+def normalize_version_for_msi(version: str) -> str:
+    """
+    Convert semver-like versions (e.g. 1.4.6+build.1, 1.4.6-rc.1)
+    to MSI-compatible numeric dotted version.
+    """
+    # MSI/WiX version fields must be numeric.
+    cleaned = re.sub(r"[^0-9.]", ".", version)
+    cleaned = re.sub(r"\.+", ".", cleaned).strip(".")
+    if not cleaned:
+        return "0.0.0"
+
+    parts = [p for p in cleaned.split(".") if p != ""]
+    # Keep only numeric parts and cap to 4 sections.
+    numeric_parts = [str(int(p)) for p in parts if p.isdigit()][:4]
+    if not numeric_parts:
+        return "0.0.0"
+    return ".".join(numeric_parts)
+
 def make_parser():
     parser = argparse.ArgumentParser(description="Msi preprocess script.")
     parser.add_argument(
@@ -469,9 +487,10 @@ def init_global_vars(dist_dir, app_name, args):
 
     global g_version
     global g_build_date
-    g_version = args.version.replace("-", ".")
+    g_version = normalize_version_for_msi(args.version.replace("-", "."))
     if g_version == "":
         g_version = read_process_output("--version")
+    g_version = normalize_version_for_msi(g_version)
     version_pattern = re.compile(r"\d+\.\d+\.\d+.*")
     if not version_pattern.match(g_version):
         print(f"Error: version {g_version} not found in {dist_app}")

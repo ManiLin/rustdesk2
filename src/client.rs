@@ -97,6 +97,8 @@ pub mod screenshot;
 pub const MILLI1: Duration = Duration::from_millis(1);
 pub const SEC30: Duration = Duration::from_secs(30);
 pub const VIDEO_QUEUE_SIZE: usize = 120;
+/// Delay between attempts when relay connection fails (see `Client::connect`).
+const RELAY_CONNECT_RETRY_INTERVAL_SECS: f32 = 2.0;
 const MAX_DECODE_FAIL_COUNTER: usize = 3;
 
 #[cfg(target_os = "linux")]
@@ -714,21 +716,31 @@ impl Client {
         let mut direct = !conn.is_err();
         if interface.is_force_relay() || conn.is_err() {
             if !relay_server.is_empty() {
-                conn = Self::request_relay(
-                    peer_id,
-                    relay_server.to_owned(),
-                    rendezvous_server,
-                    !signed_id_pk.is_empty(),
-                    key,
-                    token,
-                    conn_type,
-                )
-                .await;
-                if let Err(e) = conn {
-                    // this direct is mainly used by on_establish_connection_error, so we update it here before bail
-                    interface.update_direct(Some(false));
-                    bail!("Failed to connect via relay server: {}", e);
-                }
+                // Not a direct connection anymore once we use relay.
+                interface.update_direct(Some(false));
+                conn = loop {
+                    match Self::request_relay(
+                        peer_id,
+                        relay_server.to_owned(),
+                        rendezvous_server,
+                        !signed_id_pk.is_empty(),
+                        key,
+                        token,
+                        conn_type,
+                    )
+                    .await
+                    {
+                        Ok(c) => break Ok(c),
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to connect via relay server: {}; retrying in {}s...",
+                                e,
+                                RELAY_CONNECT_RETRY_INTERVAL_SECS
+                            );
+                            hbb_common::sleep(RELAY_CONNECT_RETRY_INTERVAL_SECS).await;
+                        }
+                    }
+                };
                 typ = "Relay";
                 direct = false;
             } else {

@@ -8,8 +8,22 @@ vcpkg_from_github(
         fix-unresolved-symbol.patch
         fix-pkgconf.patch
         0003-upgrade-cmake-3.14.patch
-        fix-missing-cstdint-import-d6241243f85a0d947bdfe813006686a930edef24.patch
 )
+
+file(READ "${SOURCE_PATH}/src/mfxparser.cpp" MFXPARSER_CPP)
+if(NOT MFXPARSER_CPP MATCHES "#include <cstdint>")
+    set(MFXPARSER_CPP_ORIG "${MFXPARSER_CPP}")
+    string(REPLACE
+        "#include <sstream>\n\n#include \"mfxloader.h\""
+        "#include <sstream>\n#include <cstdint>\n\n#include \"mfxloader.h\""
+        MFXPARSER_CPP
+        "${MFXPARSER_CPP}"
+    )
+    if(MFXPARSER_CPP STREQUAL MFXPARSER_CPP_ORIG)
+        message(FATAL_ERROR "Failed to inject <cstdint> include into src/mfxparser.cpp")
+    endif()
+    file(WRITE "${SOURCE_PATH}/src/mfxparser.cpp" "${MFXPARSER_CPP}")
+endif()
 
 if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
     vcpkg_cmake_configure(

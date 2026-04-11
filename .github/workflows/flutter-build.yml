@@ -9,6 +9,10 @@ on:
       upload-tag:
         type: string
         default: "nightly"
+      artifact-prefix:
+        description: "Префикс для промежуточных GitHub artifacts, чтобы сборки не конфликтовали в одном workflow run"
+        type: string
+        default: ""
       conn-type:
         description: "Зашить ограничение направления соединений: incoming/outgoing/пусто"
         type: string
@@ -70,9 +74,18 @@ env:
 jobs:
   generate-bridge:
     uses: ./.github/workflows/bridge.yml
+    with:
+      artifact-prefix: ${{ inputs.artifact-prefix }}
 
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
+    with:
+      upload-artifact: ${{ inputs.upload-artifact }}
+      artifact-prefix: ${{ inputs.artifact-prefix }}
+      target: windows-2022
+      configuration: Release
+      platform: x64
+      target_version: Windows10
     strategy:
       fail-fast: false
       matrix:
@@ -136,10 +149,7 @@ jobs:
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          # arm64 is on Flutter 3.44, so it needs the bridge generated with the same Flutter
-          # (its *.freezed.dart must match the freezed the arm64 build resolves). x64 and every
-          # other platform keep the default 3.22.3-generated bridge.
-          name: ${{ matrix.job.arch == 'aarch64' && 'bridge-artifact-flutter-3.44' || 'bridge-artifact' }}
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - name: Install LLVM and Clang
@@ -327,14 +337,14 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: ${{ inputs.upload-artifact }}
         with:
-          name: ${{ matrix.job.arch == 'aarch64' && 'topmostwindow-artifacts-ARM64' || 'topmostwindow-artifacts-x64' }}
+          name: ${{ inputs.artifact-prefix }}topmostwindow-artifacts
           path: "./rustdesk"
 
       - name: Upload unsigned
         if: env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-unsigned-windows-${{ matrix.job.arch }}
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-windows-${{ matrix.job.arch }}
           path: rustdesk
 
       - name: Sign rustdesk files
@@ -510,7 +520,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-unsigned-windows-${{ matrix.job.arch }}
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-windows-${{ matrix.job.arch }}
           path: Release
 
       - name: Sign rustdesk files
@@ -627,7 +637,7 @@ jobs:
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bridge-artifact
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - name: Build rustdesk lib
@@ -638,7 +648,7 @@ jobs:
       - name: Upload liblibrustdesk.a Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: liblibrustdesk.a
+          name: ${{ inputs.artifact-prefix }}liblibrustdesk.a
           path: target/aarch64-apple-ios/release/liblibrustdesk.a
 
       - name: Build rustdesk
@@ -789,7 +799,7 @@ jobs:
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bridge-artifact
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - name: Setup vcpkg with Github Actions binary cache
@@ -847,7 +857,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-unsigned-macos-${{ matrix.job.arch }}
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-macos-${{ matrix.job.arch }}
           path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg # can not upload the directory directly or tar.gz, which destroy the link structure, causing the codesign failed
 
       - name: Codesign app and create signed dmg
@@ -895,25 +905,25 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: rustdesk-unsigned-macos-x86_64
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-macos-x86_64
           path: ./
 
       - name: Download Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: rustdesk-unsigned-macos-aarch64
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-macos-aarch64
           path: ./
 
       - name: Download Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: rustdesk-unsigned-windows-x86_64
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-windows-x86_64
           path: ./windows-x86_64/
 
       - name: Download Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: rustdesk-unsigned-windows-x86
+          name: ${{ inputs.artifact-prefix }}rustdesk-unsigned-windows-x86
           path: ./windows-x86/
 
       - name: Combine unsigned app
@@ -1070,7 +1080,7 @@ jobs:
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bridge-artifact
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - name: Install Rust toolchain
@@ -1117,7 +1127,7 @@ jobs:
       - name: Upload Rustdesk library to Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: librustdesk.so.${{ matrix.job.target }}
+          name: ${{ inputs.artifact-prefix }}librustdesk.so.${{ matrix.job.target }}
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
       - name: Build rustdesk
@@ -1198,7 +1208,7 @@ jobs:
         if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
+          name: ${{ inputs.artifact-prefix }}rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
@@ -1301,32 +1311,32 @@ jobs:
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bridge-artifact
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - name: Download Rustdesk library from Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.aarch64-linux-android
+          name: ${{ inputs.artifact-prefix }}librustdesk.so.aarch64-linux-android
           path: ./flutter/android/app/src/main/jniLibs/arm64-v8a
 
       - name: Download Rustdesk library from Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.armv7-linux-androideabi
+          name: ${{ inputs.artifact-prefix }}librustdesk.so.armv7-linux-androideabi
           path: ./flutter/android/app/src/main/jniLibs/armeabi-v7a
 
       - name: Download Rustdesk library from Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.x86_64-linux-android
+          name: ${{ inputs.artifact-prefix }}librustdesk.so.x86_64-linux-android
           path: ./flutter/android/app/src/main/jniLibs/x86_64
 
       - name: Download Rustdesk library from Artifacts
         if: ${{ env.reltype == 'debug' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.i686-linux-android
+          name: ${{ inputs.artifact-prefix }}librustdesk.so.i686-linux-android
           path: ./flutter/android/app/src/main/jniLibs/x86
 
       - name: Build rustdesk
@@ -1382,7 +1392,7 @@ jobs:
         if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
+          name: ${{ inputs.artifact-prefix }}rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
@@ -1485,7 +1495,7 @@ jobs:
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bridge-artifact
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - name: Setup vcpkg with Github Actions binary cache
@@ -1520,7 +1530,7 @@ jobs:
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bridge-artifact
+          name: ${{ inputs.artifact-prefix }}bridge-artifact
           path: ./
 
       - uses: rustdesk-org/run-on-arch-action@d3fcfbb632b84cf7f6bc772bfaaa2c2f4f8789a8 # no release tag; commit 2026-05-26
@@ -1709,7 +1719,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
+          name: ${{ inputs.artifact-prefix }}rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
           path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
 
       # only x86_64 for arch since we can not find newest arm64 docker image to build
@@ -1964,7 +1974,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb
+          name: ${{ inputs.artifact-prefix }}rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb
           path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb
 
   build-appimage:
@@ -1987,7 +1997,7 @@ jobs:
       - name: Download Binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
+          name: ${{ inputs.artifact-prefix }}rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
           path: .
 
       - name: Rename Binary
@@ -2061,7 +2071,7 @@ jobs:
       - name: Download Binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.deb
+          name: ${{ inputs.artifact-prefix }}rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.deb
           path: .
 
       - name: Rename Binary

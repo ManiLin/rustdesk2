@@ -163,6 +163,13 @@ else()
     vcpkg_cmake_get_vars(cmake_vars_file)
     include("${cmake_vars_file}")
 
+    if(VCPKG_TARGET_IS_LINUX)
+        # Newer Linux toolchains on GitHub runners can fail libvpx's PIE probe
+        # unless the intent is explicit in the compiler flags passed by vcpkg.
+        string(APPEND VCPKG_C_FLAGS " -fPIC -fPIE")
+        string(APPEND VCPKG_CXX_FLAGS " -fPIC -fPIE")
+    endif()
+
     # Set environment variables for configure
     if(VCPKG_DETECTED_CMAKE_C_COMPILER MATCHES "([^\/]*-)gcc$")
         message(STATUS "Cross-building for ${TARGET_TRIPLET} with ${CMAKE_MATCH_1}")

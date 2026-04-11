@@ -1,0 +1,17 @@
+From d6241243f85a0d947bdfe813006686a930edef24 Mon Sep 17 00:00:00 2001
+From: Tomasz Kloczko <kloczek@fedoraproject.org>
+Date: Thu, 26 Jan 2023 20:15:33 +0000
+Subject: [PATCH] Fix building with gcc 13.x
+
+diff --git a/src/mfxparser.cpp b/src/mfxparser.cpp
+index 9d3823e..beea532 100644
+--- a/src/mfxparser.cpp
++++ b/src/mfxparser.cpp
+@@ -23,6 +23,7 @@
+ #include <iostream>
+ #include <list>
+ 
++#include <cstdint>
+ #include <sstream>
+ 
+ #include "mfxloader.h"

@@ -305,6 +305,22 @@ class _ConnectionPageState extends State<ConnectionPage>
   Widget build(BuildContext context) {
     final isOutgoingOnly = bind.isOutgoingOnly();
     final isCompactCashdesk = isCashdeskBuild;
+    if (isCompactCashdesk) {
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
+                child: _buildRemoteIDTextField(context),
+              ),
+            ),
+          ),
+          if (!isOutgoingOnly) const Divider(height: 1),
+          if (!isOutgoingOnly) OnlineStatusWidget(),
+        ],
+      );
+    }
     return Column(
       children: [
         Expanded(
@@ -353,7 +369,7 @@ class _ConnectionPageState extends State<ConnectionPage>
     final horizontalPadding = isCompactCashdesk ? 16.0 : 20.0;
     final verticalTopPadding = isCompactCashdesk ? 18.0 : 24.0;
     final verticalBottomPadding = isCompactCashdesk ? 18.0 : 22.0;
-    final fieldWidth = isCompactCashdesk ? 280.0 : 320.0;
+    final fieldWidth = isCompactCashdesk ? 250.0 : 320.0;
     final cardFillColor = isCompactCashdesk
         ? Theme.of(context).scaffoldBackgroundColor.withOpacity(
             Theme.of(context).brightness == Brightness.dark ? 0.32 : 0.50)
@@ -456,7 +472,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                                   ? null
                                   : translate('Enter Remote ID'),
                               contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 15, vertical: 13)),
+                                  horizontal: 15, vertical: 11)),
                           controller: fieldTextEditingController,
                           inputFormatters: [IDTextInputFormatter()],
                           onChanged: (v) {
@@ -636,6 +652,6 @@ class _ConnectionPageState extends State<ConnectionPage>
     );
     return Container(
         constraints:
-            BoxConstraints(maxWidth: isCompactCashdesk ? 460 : 600), child: w);
+            BoxConstraints(maxWidth: isCompactCashdesk ? 360 : 600), child: w);
   }
 }

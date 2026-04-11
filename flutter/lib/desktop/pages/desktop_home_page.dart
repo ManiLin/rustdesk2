@@ -185,6 +185,44 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   buildRightPane(BuildContext context) {
+    if (isCashdeskBuild) {
+      final cardColor = Theme.of(context)
+              .colorScheme
+              .background
+              .withOpacity(Theme.of(context).brightness == Brightness.dark
+                  ? 0.72
+                  : 0.84);
+      final borderColor = Theme.of(context)
+              .dividerColor
+              .withOpacity(Theme.of(context).brightness == Brightness.dark
+                  ? 0.28
+                  : 0.18);
+      return Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 430, maxHeight: 600),
+            margin: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: borderColor),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: ConnectionPage(),
+            ),
+          ),
+        ),
+      );
+    }
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: ConnectionPage(),

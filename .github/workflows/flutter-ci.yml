@@ -29,5 +29,6 @@ jobs:
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: false
+      artifact-prefix: "cashdesk-"
       conn-type: "incoming"
       desktop-ui-flavor: "cashdesk"

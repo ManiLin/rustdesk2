@@ -304,6 +304,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   @override
   Widget build(BuildContext context) {
     final isOutgoingOnly = bind.isOutgoingOnly();
+    final isCompactCashdesk = isCashdeskBuild;
     return Column(
       children: [
         Expanded(
@@ -313,12 +314,19 @@ class _ConnectionPageState extends State<ConnectionPage>
               children: [
                 Flexible(child: _buildRemoteIDTextField(context)),
               ],
-            ).marginOnly(top: 22),
-            SizedBox(height: 12),
-            Divider().paddingOnly(right: 12),
-            Expanded(child: PeerTabPage()),
+            ).marginOnly(top: isCompactCashdesk ? 10 : 22),
+            SizedBox(height: isCompactCashdesk ? 8 : 12),
+            Divider().paddingOnly(right: isCompactCashdesk ? 0 : 12),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: isCompactCashdesk ? 4 : 0),
+                child: PeerTabPage(),
+              ),
+            ),
           ],
-        ).paddingOnly(left: 12.0)),
+        ).paddingOnly(
+                left: isCompactCashdesk ? 10.0 : 12.0,
+                right: isCompactCashdesk ? 10.0 : 0)),
         if (!isOutgoingOnly) const Divider(height: 1),
         if (!isOutgoingOnly) OnlineStatusWidget()
       ],
@@ -341,16 +349,33 @@ class _ConnectionPageState extends State<ConnectionPage>
   /// UI for the remote ID TextField.
   /// Search for a peer.
   Widget _buildRemoteIDTextField(BuildContext context) {
+    final isCompactCashdesk = isCashdeskBuild;
+    final horizontalPadding = isCompactCashdesk ? 16.0 : 20.0;
+    final verticalTopPadding = isCompactCashdesk ? 18.0 : 24.0;
+    final verticalBottomPadding = isCompactCashdesk ? 18.0 : 22.0;
+    final fieldWidth = isCompactCashdesk ? 280.0 : 320.0;
+    final cardFillColor = isCompactCashdesk
+        ? Theme.of(context).scaffoldBackgroundColor.withOpacity(
+            Theme.of(context).brightness == Brightness.dark ? 0.32 : 0.50)
+        : null;
     var w = Container(
-      width: 320 + 20 * 2,
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+      width: fieldWidth + horizontalPadding * 2,
+      padding: EdgeInsets.fromLTRB(horizontalPadding, verticalTopPadding,
+          horizontalPadding, verticalBottomPadding),
       decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
+          color: cardFillColor,
+          borderRadius: BorderRadius.all(
+              Radius.circular(isCompactCashdesk ? 16 : 13)),
+          border: Border.all(
+              color: Theme.of(context)
+                  .colorScheme
+                  .background
+                  .withOpacity(isCompactCashdesk ? 0.4 : 1))),
       child: Ink(
         child: Column(
           children: [
-            getConnectionPageTitle(context, false).marginOnly(bottom: 15),
+            getConnectionPageTitle(context, false)
+                .marginOnly(bottom: isCompactCashdesk ? 12 : 15),
             Row(
               children: [
                 Expanded(
@@ -481,7 +506,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                                 child: ConstrainedBox(
                                   constraints: BoxConstraints(
                                     maxHeight: maxHeight,
-                                    maxWidth: 319,
+                                    maxWidth: isCompactCashdesk ? 279 : 319,
                                   ),
                                   child: _allPeersLoader.peers.isEmpty &&
                                           !_allPeersLoader.isPeersLoaded
@@ -513,7 +538,7 @@ class _ConnectionPageState extends State<ConnectionPage>
               ],
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 13.0),
+              padding: EdgeInsets.only(top: isCompactCashdesk ? 10.0 : 13.0),
               child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 SizedBox(
                   height: 28.0,
@@ -610,6 +635,7 @@ class _ConnectionPageState extends State<ConnectionPage>
       ),
     );
     return Container(
-        constraints: const BoxConstraints(maxWidth: 600), child: w);
+        constraints:
+            BoxConstraints(maxWidth: isCompactCashdesk ? 460 : 600), child: w);
   }
 }

@@ -1648,6 +1648,7 @@ jobs:
       - name: Rename archlinux package
         if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true'
         run: |
+          shopt -s nullglob
           for name in res/rustdesk-${{ env.VERSION }}*.zst; do
               suffix="${name#res/rustdesk-${{ env.VERSION }}}"
               mv "$name" "res/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}${suffix}"
@@ -1933,6 +1934,7 @@ jobs:
       - name: Rename appimage package
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
+          shopt -s nullglob
           for name in ./appimage/rustdesk-${{ env.VERSION }}-*.AppImage; do
               suffix="${name#./appimage/rustdesk-${{ env.VERSION }}}"
               mv "$name" "./appimage/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}${suffix}"

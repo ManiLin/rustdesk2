@@ -201,7 +201,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         color: Theme.of(context).scaffoldBackgroundColor,
         child: Center(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 430, maxHeight: 600),
+            constraints: const BoxConstraints(maxWidth: 390, maxHeight: 320),
             margin: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
             decoration: BoxDecoration(
               color: cardColor,

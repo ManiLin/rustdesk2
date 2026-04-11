@@ -5,13 +5,15 @@ import 'package:get/get.dart';
 import '../../common.dart';
 
 Widget getConnectionPageTitle(BuildContext context, bool isWeb) {
+  final title =
+      isCashdeskBuild ? translate('New Connection') : translate('Control Remote Desktop');
   return Row(
     children: [
       Expanded(
           child: Row(
         children: [
           AutoSizeText(
-            translate('Control Remote Desktop'),
+            title,
             maxLines: 1,
             style: Theme.of(context)
                 .textTheme

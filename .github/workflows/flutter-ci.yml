@@ -23,3 +23,11 @@ jobs:
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: false
+
+  run-ci-cashdesk:
+    if: ${{ github.event_name != 'push' || !(github.event.head_commit && contains(github.event.head_commit.message, '[skip ci]')) }}
+    uses: ./.github/workflows/flutter-build.yml
+    with:
+      upload-artifact: false
+      conn-type: "incoming"
+      desktop-ui-flavor: "cashdesk"

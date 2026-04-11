@@ -20,3 +20,13 @@ jobs:
       upload-artifact: true
       upload-tag: "nightly"
       inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}
+
+  run-flutter-nightly-cashdesk-build:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: "nightly-cashdesk"
+      conn-type: "incoming"
+      desktop-ui-flavor: "cashdesk"
+      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}

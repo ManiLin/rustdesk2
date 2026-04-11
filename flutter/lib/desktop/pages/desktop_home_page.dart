@@ -81,15 +81,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final isOutgoingOnly = bind.isOutgoingOnly();
     final children = <Widget>[
       if (!isOutgoingOnly) buildPresetPasswordWarning(),
-      if (bind.isCustomClient())
+      if (isCashdeskBuild)
+        buildCashdeskHeader(context)
+      else ...[
+        if (bind.isCustomClient())
+          Align(
+            alignment: Alignment.center,
+            child: loadPowered(context),
+          ),
         Align(
           alignment: Alignment.center,
-          child: loadPowered(context),
+          child: loadLogo(),
         ),
-      Align(
-        alignment: Alignment.center,
-        child: loadLogo(),
-      ),
+      ],
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
@@ -390,6 +394,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   buildTip(BuildContext context) {
     final isOutgoingOnly = bind.isOutgoingOnly();
+    final titleStyle = isCashdeskBuild
+        ? Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            )
+        : Theme.of(context).textTheme.titleLarge;
     return Padding(
       padding:
           const EdgeInsets.only(left: 20.0, right: 16, top: 16.0, bottom: 5),
@@ -404,7 +413,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   alignment: Alignment.centerLeft,
                   child: Text(
                     translate("Your Desktop"),
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: titleStyle,
                   ),
                 ),
             ],
@@ -424,6 +433,35 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               overflow: TextOverflow.clip,
               style: Theme.of(context).textTheme.bodySmall,
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildCashdeskHeader(BuildContext context) {
+    final hintStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontSize: 11,
+          decoration: TextDecoration.underline,
+          color:
+              Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.6),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(left: 20.0, right: 16, top: 12.0),
+      child: Column(
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220, maxHeight: 220),
+            child: loadCashdeskLogo(),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: Text(
+              translate("powered_by_me"),
+              style: hintStyle,
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
       ),
     );

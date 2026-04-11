@@ -3824,6 +3824,14 @@ class _LogoState extends State<_Logo> {
   }
 }
 
+Widget loadCashdeskLogo() {
+  return Image.asset(
+    'assets/cashdesk_logo.png',
+    fit: BoxFit.contain,
+    errorBuilder: (ctx, error, stackTrace) => const SizedBox.shrink(),
+  );
+}
+
 // max 300 x 60
 Widget loadLogo() => const _Logo();
 
@@ -4190,6 +4198,13 @@ String get appName {
     _appName = bind.mainGetAppNameSync();
   }
   return _appName;
+}
+
+bool? _isCashdeskBuild;
+bool get isCashdeskBuild {
+  _isCashdeskBuild ??=
+      bind.mainGetBuildinOption(key: 'desktop-ui-flavor') == 'cashdesk';
+  return _isCashdeskBuild!;
 }
 
 String getConnectionText(bool secure, bool direct, String streamType) {

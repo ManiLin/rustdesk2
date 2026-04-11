@@ -9,6 +9,14 @@ on:
       upload-tag:
         type: string
         default: "nightly"
+      conn-type:
+        description: "Зашить ограничение направления соединений: incoming/outgoing/пусто"
+        type: string
+        default: ""
+      desktop-ui-flavor:
+        description: "Вариант desktop UI (например cashdesk), пусто = обычный UI"
+        type: string
+        default: ""
       inventory-report-url:
         description: "URL POST /api/v1/report для портала учёта (пусто = не зашивать в сборку)"
         type: string
@@ -56,6 +64,8 @@ env:
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
   INVENTORY_REPORT_URL: "${{ inputs.inventory-report-url }}"
+  RUSTDESK_DEFAULT_CONN_TYPE: "${{ inputs.conn-type }}"
+  RUSTDESK_DESKTOP_UI_FLAVOR: "${{ inputs.desktop-ui-flavor }}"
 
 jobs:
   generate-bridge:
@@ -356,7 +366,11 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          $msiArgs = @("--arp", "-d", "../../rustdesk")
+          if ("${{ env.RUSTDESK_DEFAULT_CONN_TYPE }}" -ne "") {
+            $msiArgs += @("--conn-type", "${{ env.RUSTDESK_DEFAULT_CONN_TYPE }}")
+          }
+          python preprocess.py @msiArgs
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10

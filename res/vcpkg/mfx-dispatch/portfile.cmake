@@ -12,10 +12,12 @@ vcpkg_from_github(
 
 file(READ "${SOURCE_PATH}/src/mfxparser.cpp" MFXPARSER_CPP)
 if(NOT MFXPARSER_CPP MATCHES "#include <cstdint>")
+    string(REPLACE "\r\n" "\n" MFXPARSER_CPP "${MFXPARSER_CPP}")
+    string(REPLACE "\r" "\n" MFXPARSER_CPP "${MFXPARSER_CPP}")
     set(MFXPARSER_CPP_ORIG "${MFXPARSER_CPP}")
     string(REPLACE
-        "#include <sstream>\n\n#include \"mfxloader.h\""
-        "#include <sstream>\n#include <cstdint>\n\n#include \"mfxloader.h\""
+        "#include \"mfxloader.h\""
+        "#include <cstdint>\n\n#include \"mfxloader.h\""
         MFXPARSER_CPP
         "${MFXPARSER_CPP}"
     )

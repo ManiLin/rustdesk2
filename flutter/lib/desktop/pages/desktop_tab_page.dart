@@ -52,14 +52,19 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
         page: DesktopHomePage(
           key: const ValueKey(kTabLabelHomePage),
         )));
-    if (bind.isIncomingOnly()) {
+    if (isCashdeskBuild || bind.isIncomingOnly()) {
       tabController.onSelected = (key) {
         if (key == kTabLabelHomePage) {
           windowManager.setSize(getIncomingOnlyHomeSize());
           setResizable(false);
-        } else {
+        } else if (key == kTabLabelSettingPage) {
           windowManager.setSize(getIncomingOnlySettingsSize());
           setResizable(true);
+        } else {
+          // Incoming connection tab: compact non-resizable window for cashdesk
+          windowManager.setSize(
+              isCashdeskBuild ? const Size(300, 420) : getIncomingOnlySettingsSize());
+          setResizable(false);
         }
       };
     }
@@ -97,7 +102,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             body: DesktopTab(
               controller: tabController,
               tail: Offstage(
-                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
+                offstage: isCashdeskBuild || bind.isIncomingOnly() || bind.isDisableSettings(),
                 child: ActionIcon(
                   message: 'Settings',
                   icon: IconFont.menu,

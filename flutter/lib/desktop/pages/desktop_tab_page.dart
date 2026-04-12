@@ -57,14 +57,18 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
         if (key == kTabLabelHomePage) {
           windowManager.setSize(getIncomingOnlyHomeSize());
           setResizable(false);
+          // Restore full opacity on the home (ID/password) tab
+          if (isCashdeskBuild) windowManager.setOpacity(1.0);
         } else if (key == kTabLabelSettingPage) {
           windowManager.setSize(getIncomingOnlySettingsSize());
           setResizable(true);
+          if (isCashdeskBuild) windowManager.setOpacity(1.0);
         } else {
-          // Incoming connection tab: compact non-resizable window for cashdesk
+          // Incoming connection tab: compact + semi-transparent for cashdesk
           windowManager.setSize(
               isCashdeskBuild ? const Size(300, 420) : getIncomingOnlySettingsSize());
           setResizable(false);
+          if (isCashdeskBuild) windowManager.setOpacity(0.88);
         }
       };
     }

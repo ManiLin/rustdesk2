@@ -170,7 +170,7 @@ void runMainApp(bool startService) async {
       // Move registration of active main window here to prevent from async visible check.
       rustDeskWinManager.registerActiveWindow(kWindowMainId);
     }
-    windowManager.setOpacity(isCashdeskBuild ? 0.88 : 1);
+    windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
     setResizable(!(isCashdeskBuild || bind.isIncomingOnly()));

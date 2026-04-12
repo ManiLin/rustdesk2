@@ -488,7 +488,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: Column(
         children: [
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220, maxHeight: 220),
+            constraints: const BoxConstraints(maxWidth: 100, maxHeight: 100),
             child: loadCashdeskLogo(),
           ),
           const SizedBox(height: 8),
@@ -928,7 +928,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     });
     _uniLinksSubscription = listenUniLinks();
 
-    if (bind.isIncomingOnly()) {
+    if (isCashdeskBuild || bind.isIncomingOnly()) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _updateWindowSize();
       });

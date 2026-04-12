@@ -4072,12 +4072,9 @@ String get appName {
   return _appName;
 }
 
-bool? _isCashdeskBuild;
-bool get isCashdeskBuild {
-  _isCashdeskBuild ??=
-      bind.mainGetBuildinOption(key: 'desktop-ui-flavor') == 'cashdesk';
-  return _isCashdeskBuild!;
-}
+// Set at build time via --dart-define=DESKTOP_UI_FLAVOR=cashdesk
+const _kDesktopUiFlavor = String.fromEnvironment('DESKTOP_UI_FLAVOR');
+bool get isCashdeskBuild => _kDesktopUiFlavor == 'cashdesk';
 
 String getConnectionText(bool secure, bool direct, String streamType) {
   String connectionText;

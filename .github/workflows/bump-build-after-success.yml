@@ -1,7 +1,10 @@
 # After a successful Flutter CI / nightly build, increment +build.N in Cargo.toml and workflows.
 # Commit uses [skip ci] so "Full Flutter CI" does not run again on that push (see flutter-ci.yml).
-# If the commit updates files in .github/workflows/, prefer a PAT-like secret with workflow scope
-# (WORKFLOW_PUSH_TOKEN). github.token may be refused for workflow file updates.
+#
+# Required secrets:
+#   WORKFLOW_PUSH_TOKEN — PAT with "repo" + "workflow" scopes (allows pushing .github/workflows).
+#   Falls back to github.token, but github.token cannot update workflow files even with
+#   workflows: write on some repository configurations, so a PAT is strongly preferred.
 
 name: Bump build number after successful build
 
@@ -17,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  workflows: write
 
 concurrency:
   group: bump-build-metadata
@@ -35,7 +39,7 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PUSH_TOKEN != '' && secrets.WORKFLOW_PUSH_TOKEN || github.token }}
+          token: ${{ secrets.WORKFLOW_PUSH_TOKEN || github.token }}
 
       - name: Bump +build.N
         run: python3 .github/scripts/bump_build_metadata.py
@@ -50,4 +54,6 @@ jobs:
             exit 0
           fi
           git commit -m "chore: bump +build after successful CI [skip ci]"
+          # Pull-rebase in case another bump committed while we were running
+          git pull --rebase origin master
           git push origin HEAD:master

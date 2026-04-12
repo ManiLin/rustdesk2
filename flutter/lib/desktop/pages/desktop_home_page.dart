@@ -477,30 +477,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget buildCashdeskHeader(BuildContext context) {
-    final hintStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-          fontSize: 11,
-          decoration: TextDecoration.underline,
-          color:
-              Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.6),
-        );
     return Padding(
       padding: const EdgeInsets.only(left: 20.0, right: 16, top: 12.0),
-      child: Column(
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 100, maxHeight: 100),
-            child: loadCashdeskLogo(),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: Text(
-              translate("powered_by_me"),
-              style: hintStyle,
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 100, maxHeight: 100),
+          child: loadCashdeskLogo(),
+        ),
       ),
     );
   }

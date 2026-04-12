@@ -599,6 +599,7 @@ class MyTheme {
   }
 
   static ThemeMode currentThemeMode() {
+    if (isCashdeskBuild) return ThemeMode.dark;
     final preference = getThemeModePreference();
     if (preference == ThemeMode.system) {
       if (WidgetsBinding.instance.platformDispatcher.platformBrightness ==

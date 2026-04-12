@@ -60,15 +60,15 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
           // Restore full opacity on the home (ID/password) tab
           if (isCashdeskBuild) windowManager.setOpacity(1.0);
         } else if (key == kTabLabelSettingPage) {
-          windowManager.setSize(getIncomingOnlySettingsSize());
           setResizable(true);
+          windowManager.setSize(getIncomingOnlySettingsSize());
           if (isCashdeskBuild) windowManager.setOpacity(1.0);
         } else {
           // Incoming connection tab: compact + semi-transparent for cashdesk
           windowManager.setSize(
               isCashdeskBuild ? const Size(300, 420) : getIncomingOnlySettingsSize());
           setResizable(false);
-          if (isCashdeskBuild) windowManager.setOpacity(0.88);
+          if (isCashdeskBuild) windowManager.setOpacity(0.5);
         }
       };
     }
@@ -106,7 +106,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             body: DesktopTab(
               controller: tabController,
               tail: Offstage(
-                offstage: isCashdeskBuild || bind.isIncomingOnly() || bind.isDisableSettings(),
+                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
                 child: ActionIcon(
                   message: 'Settings',
                   icon: IconFont.menu,

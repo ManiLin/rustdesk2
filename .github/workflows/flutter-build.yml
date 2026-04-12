@@ -116,6 +116,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Restore bridge files
         uses: actions/download-artifact@master
         with:
@@ -341,6 +346,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Install LLVM and Clang
         uses: rustdesk-org/install-llvm-action-32bit@master
         with:
@@ -491,6 +501,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Install flutter
         uses: subosito/flutter-action@v2
         with:
@@ -615,6 +630,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
 
       - name: Import the codesign cert
         if: env.MACOS_P12_BASE64 != null
@@ -929,6 +949,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Install flutter
         uses: subosito/flutter-action@v2
         with:
@@ -1201,6 +1226,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Install flutter
         uses: subosito/flutter-action@v2
         with:
@@ -1365,6 +1395,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
 
       - name: Set Swap Space
         if: ${{ matrix.job.arch == 'x86_64' }}
@@ -1705,6 +1740,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Modify vcpkg.json for armv7
         if: matrix.job.vcpkg-triplet == 'arm-linux'
         run: |
@@ -1907,6 +1947,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Download Binary
         uses: actions/download-artifact@master
         with:
@@ -1989,6 +2034,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
+
       - name: Download Binary
         uses: actions/download-artifact@master
         with:
@@ -2049,6 +2099,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Replace icons for cashdesk build
+        if: inputs.desktop-ui-flavor == 'cashdesk'
+        shell: bash
+        run: bash .github/scripts/replace_cashdesk_icons.sh
 
       - name: Prepare env
         run: |

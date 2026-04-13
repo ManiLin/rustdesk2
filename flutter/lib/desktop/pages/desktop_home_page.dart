@@ -920,6 +920,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   _updateWindowSize() {
+    if (!isInHomePage()) return;
     RenderObject? renderObject = _childKey.currentContext?.findRenderObject();
     if (renderObject == null) {
       return;

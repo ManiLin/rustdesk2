@@ -23,7 +23,12 @@ cp -v "$ROOT/res/cashdesk_64x64.png"     "$ROOT/res/64x64.png"
 cp -v "$ROOT/res/cashdesk_32x32.png"     "$ROOT/res/32x32.png"
 cp -v "$ROOT/res/cashdesk_icon.png"      "$ROOT/res/128x128@2x.png"
 cp -v "$ROOT/res/cashdesk_tray-icon.ico" "$ROOT/res/tray-icon.ico"
-cp -v "$ROOT/res/cashdesk_icon.png"      "$ROOT/flutter/assets/icon.png" 2>/dev/null || true
+
+# Windows Flutter exe icon (Runner.rc → embedded in .exe) + taskbar at runtime (win32_window.cpp)
+mkdir -p "$ROOT/flutter/windows/runner/resources"
+cp -v "$ROOT/res/cashdesk_icon.ico" "$ROOT/flutter/windows/runner/resources/app_icon.ico"
+cp -v "$ROOT/res/cashdesk_icon.ico" "$ROOT/flutter/assets/icon.ico"
+cp -v "$ROOT/res/cashdesk_icon.png" "$ROOT/flutter/assets/icon.png" 2>/dev/null || true
 
 # Windows Flutter runner version metadata
 RUNNER_RC="$ROOT/flutter/windows/runner/Runner.rc"

@@ -1907,30 +1907,7 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 
 /// Apply permanent password and lock rotation when baked in at build time.
 pub fn apply_build_preset_password() {
-    use hbb_common::config::{
-        self, compute_permanent_password_h1, encode_permanent_password_storage_from_h1,
-        Config, DEFAULT_PRESET_PASSWORD_FROM_BUILD,
-    };
-    let pwd = DEFAULT_PRESET_PASSWORD_FROM_BUILD;
-    if pwd.is_empty() {
-        return;
-    }
-    if Config::has_local_permanent_password() {
-        return;
-    }
-    let mut cfg = config::CONFIG.write().unwrap();
-    if cfg.salt.is_empty() {
-        cfg.salt = Config::get_auto_password(6);
-    }
-    let salt = cfg.salt.clone();
-    let h1 = compute_permanent_password_h1(pwd, &salt);
-    let storage = encode_permanent_password_storage_from_h1(&h1);
-    drop(cfg);
-    if let Err(e) = Config::set_permanent_password_storage_for_sync(&storage, &salt) {
-        log::error!("apply_build_preset_password: {}", e);
-    } else {
-        log::info!("Build-time preset permanent password applied");
-    }
+    Config::apply_preset_password_from_build();
 }
 
 pub fn load_custom_client() {

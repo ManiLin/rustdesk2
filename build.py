@@ -42,6 +42,26 @@ flutter_dart_defines = (
 )
 
 
+def apply_cashdesk_branding_files():
+    """Copy cashdesk icons into Flutter Windows paths (same as replace_cashdesk_icons.sh)."""
+    if _ui_flavor != 'cashdesk':
+        return
+    root = Path(__file__).resolve().parent
+    ico = root / 'res' / 'cashdesk_icon.ico'
+    if not ico.is_file():
+        print(f'warning: {ico} missing, skip cashdesk icon copy')
+        return
+    res_dir = root / 'flutter' / 'windows' / 'runner' / 'resources'
+    res_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ico, res_dir / 'app_icon.ico')
+    shutil.copy2(ico, root / 'flutter' / 'assets' / 'icon.ico')
+    tray = root / 'res' / 'cashdesk_tray-icon.ico'
+    if tray.is_file():
+        shutil.copy2(tray, root / 'res' / 'tray-icon.ico')
+        shutil.copy2(ico, root / 'res' / 'icon.ico')
+    print('cashdesk branding files applied for local build')
+
+
 def rename_release_exe(release_dir):
     """Rename rustdesk.exe to branded exe in Flutter Windows Release folder."""
     if _exe_base == 'rustdesk':
@@ -464,6 +484,7 @@ def build_flutter_windows(version, features, skip_portable_pack):
         if not os.path.exists("target/release/librustdesk.dll"):
             print("cargo build failed, please check rust source code.")
             exit(-1)
+    apply_cashdesk_branding_files()
     os.chdir('flutter')
     system2(f'flutter build windows --release {flutter_dart_defines}')
     rename_release_exe(flutter_build_dir)

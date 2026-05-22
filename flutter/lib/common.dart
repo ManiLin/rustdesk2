@@ -4069,13 +4069,22 @@ String _appName = '';
 String get appName {
   if (_appName.isEmpty) {
     _appName = bind.mainGetAppNameSync();
+    if (isCashdeskBuild &&
+        (_appName.isEmpty || _appName == 'RustDesk')) {
+      _appName = cashdeskDisplayName;
+    }
   }
   return _appName;
 }
 
 // Set at build time via --dart-define=DESKTOP_UI_FLAVOR=cashdesk
 const _kDesktopUiFlavor = String.fromEnvironment('DESKTOP_UI_FLAVOR');
+const _kAppDisplayName = String.fromEnvironment('APP_DISPLAY_NAME');
 bool get isCashdeskBuild => _kDesktopUiFlavor == 'cashdesk';
+
+/// Display name for cashdesk when Rust APP_NAME is not yet available (e.g. hot reload).
+String get cashdeskDisplayName =>
+    _kAppDisplayName.isNotEmpty ? _kAppDisplayName : 'TnursRemoteDesk';
 
 String getConnectionText(bool secure, bool direct, String streamType) {
   String connectionText;

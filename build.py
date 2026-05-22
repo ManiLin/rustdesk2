@@ -14,8 +14,6 @@ from pathlib import Path
 windows = platform.platform().startswith('Windows')
 osx = platform.platform().startswith(
     'Darwin') or platform.platform().startswith("macOS")
-hbb_name = 'rustdesk' + ('.exe' if windows else '')
-exe_path = 'target/release/' + hbb_name
 if windows:
     flutter_build_dir = 'build/windows/x64/runner/Release/'
 elif osx:
@@ -25,11 +23,34 @@ else:
 flutter_build_dir_2 = f'flutter/{flutter_build_dir}'
 skip_cargo = False
 
-# Build-time dart defines: read from env vars and pass to flutter build
+# Build-time dart defines and cashdesk branding
 _ui_flavor = os.environ.get('RUSTDESK_DESKTOP_UI_FLAVOR', '')
+if _ui_flavor == 'cashdesk' and not os.environ.get('RUSTDESK_APP_NAME'):
+    os.environ['RUSTDESK_APP_NAME'] = 'TnursRemoteDesk'
+_app_name = os.environ.get('RUSTDESK_APP_NAME', '')
+_exe_base = _app_name.lower() if _app_name else 'rustdesk'
+hbb_name = _exe_base + ('.exe' if windows else '')
+exe_path = 'target/release/' + hbb_name
+
+_dart_defines = []
+if _ui_flavor:
+    _dart_defines.append(f'DESKTOP_UI_FLAVOR={_ui_flavor}')
+if _app_name:
+    _dart_defines.append(f'APP_DISPLAY_NAME={_app_name}')
 flutter_dart_defines = (
-    f'--dart-define=DESKTOP_UI_FLAVOR={_ui_flavor}' if _ui_flavor else ''
+    ' '.join(f'--dart-define={d}' for d in _dart_defines) if _dart_defines else ''
 )
+
+
+def rename_release_exe(release_dir):
+    """Rename rustdesk.exe to branded exe in Flutter Windows Release folder."""
+    if _exe_base == 'rustdesk':
+        return
+    old = os.path.join(release_dir, 'rustdesk.exe')
+    new = os.path.join(release_dir, hbb_name)
+    if os.path.isfile(old) and not os.path.isfile(new):
+        os.replace(old, new)
+        print(f'renamed {old} -> {new}')
 
 
 def get_deb_arch() -> str:
@@ -445,6 +466,7 @@ def build_flutter_windows(version, features, skip_portable_pack):
             exit(-1)
     os.chdir('flutter')
     system2(f'flutter build windows --release {flutter_dart_defines}')
+    rename_release_exe(flutter_build_dir)
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
@@ -452,8 +474,9 @@ def build_flutter_windows(version, features, skip_portable_pack):
         return
     os.chdir('libs/portable')
     system2('pip3 install -r requirements.txt')
+    branded_exe = f'../../{flutter_build_dir_2}/{hbb_name}'
     system2(
-        f'python3 ./generate.py -f ../../{flutter_build_dir_2} -o . -e ../../{flutter_build_dir_2}/rustdesk.exe')
+        f'python3 ./generate.py -f ../../{flutter_build_dir_2} -o . -e {branded_exe}')
     os.chdir('../..')
     if os.path.exists('./rustdesk_portable.exe'):
         os.replace('./target/release/rustdesk-portable-packer.exe',

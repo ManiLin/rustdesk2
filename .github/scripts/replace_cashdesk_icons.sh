@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Replace default RustDesk icons with cashdesk branding (graphic only, no text).
+# Cashdesk (forcash) branding: icons + Windows version info + default app name hint.
 # Called from CI when RUSTDESK_DESKTOP_UI_FLAVOR=cashdesk.
 set -euo pipefail
 
 if [ "${RUSTDESK_DESKTOP_UI_FLAVOR:-}" != "cashdesk" ]; then
-  echo "Not a cashdesk build, skipping icon replacement."
+  echo "Not a cashdesk build, skipping branding."
   exit 0
 fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+APP_NAME="${RUSTDESK_APP_NAME:-TnursRemoteDesk}"
+EXE_BASE="$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')"
+
+echo "Applying cashdesk branding: app=$APP_NAME exe=${EXE_BASE}.exe"
 
 # App icon (graphic only, no "Татнефть-УРС" text)
 cp -v "$ROOT/res/cashdesk_icon.png"      "$ROOT/res/icon.png"
@@ -18,11 +22,19 @@ cp -v "$ROOT/res/cashdesk_128x128.png"   "$ROOT/res/128x128.png"
 cp -v "$ROOT/res/cashdesk_64x64.png"     "$ROOT/res/64x64.png"
 cp -v "$ROOT/res/cashdesk_32x32.png"     "$ROOT/res/32x32.png"
 cp -v "$ROOT/res/cashdesk_icon.png"      "$ROOT/res/128x128@2x.png"
-
-# Tray icon (graphic only, optimized for small sizes)
 cp -v "$ROOT/res/cashdesk_tray-icon.ico" "$ROOT/res/tray-icon.ico"
-
-# Flutter asset icon (graphic only for taskbar/window title)
 cp -v "$ROOT/res/cashdesk_icon.png"      "$ROOT/flutter/assets/icon.png" 2>/dev/null || true
 
-echo "Cashdesk icons replaced."
+# Windows Flutter runner version metadata
+RUNNER_RC="$ROOT/flutter/windows/runner/Runner.rc"
+if [ -f "$RUNNER_RC" ]; then
+  sed -i \
+    -e "s/RustDesk Remote Desktop/${APP_NAME} Remote Desktop/g" \
+    -e "s/VALUE \"InternalName\", \"rustdesk\"/VALUE \"InternalName\", \"${EXE_BASE}\"/g" \
+    -e "s/VALUE \"OriginalFilename\", \"rustdesk.exe\"/VALUE \"OriginalFilename\", \"${EXE_BASE}.exe\"/g" \
+    -e "s/VALUE \"ProductName\", \"RustDesk\"/VALUE \"ProductName\", \"${APP_NAME}\"/g" \
+    "$RUNNER_RC"
+  echo "Patched $RUNNER_RC"
+fi
+
+echo "Cashdesk branding applied."

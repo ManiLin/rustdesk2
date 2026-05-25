@@ -65,8 +65,8 @@ env:
   INVENTORY_REPORT_URL: "${{ inputs.inventory-report-url }}"
   RUSTDESK_DEFAULT_CONN_TYPE: "${{ inputs.conn-type }}"
   RUSTDESK_DESKTOP_UI_FLAVOR: "${{ inputs.desktop-ui-flavor }}"
-  RUSTDESK_APP_NAME: "${{ inputs.desktop-ui-flavor == 'cashdesk' && 'TnursRemoteDesk' || '' }}"
-  FILE_NAME_PREFIX: "${{ inputs.desktop-ui-flavor == 'cashdesk' && 'tnursremotedesk' || 'rustdesk' }}"
+  RUSTDESK_APP_NAME: "TnursRemoteDesk"
+  FILE_NAME_PREFIX: "tnursremotedesk"
   FILE_NAME_VERSION_SEP: "${{ inputs.desktop-ui-flavor == 'cashdesk' && '_' || '-' }}"
 
 jobs:
@@ -117,8 +117,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -277,11 +276,7 @@ jobs:
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          BRANDED_EXE="rustdesk.exe"
-          if [ "${{ inputs.desktop-ui-flavor }}" = "cashdesk" ]; then
-            BRANDED_EXE="tnursremotedesk.exe"
-          fi
-          python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${BRANDED_EXE}"
+          python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/tnursremotedesk.exe"
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}.exe
@@ -297,9 +292,7 @@ jobs:
           if ("${{ env.RUSTDESK_DEFAULT_CONN_TYPE }}" -ne "") {
             $msiArgs += @("--conn-type", "${{ env.RUSTDESK_DEFAULT_CONN_TYPE }}")
           }
-          if ("${{ inputs.desktop-ui-flavor }}" -eq "cashdesk") {
-            $msiArgs += @("--app-name", "TnursRemoteDesk")
-          }
+          $msiArgs += @("--app-name", "TnursRemoteDesk")
           python preprocess.py @msiArgs
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
@@ -354,8 +347,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -509,8 +501,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -639,8 +630,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -957,8 +947,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -1234,8 +1223,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -1404,8 +1392,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -1748,8 +1735,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -1955,8 +1941,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -2042,8 +2027,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 
@@ -2108,8 +2092,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Replace icons for cashdesk build
-        if: inputs.desktop-ui-flavor == 'cashdesk'
+      - name: Apply branding icons
         shell: bash
         run: bash .github/scripts/replace_cashdesk_icons.sh
 

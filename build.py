@@ -23,9 +23,9 @@ else:
 flutter_build_dir_2 = f'flutter/{flutter_build_dir}'
 skip_cargo = False
 
-# Build-time dart defines and cashdesk branding
+# Build-time dart defines and branding
 _ui_flavor = os.environ.get('RUSTDESK_DESKTOP_UI_FLAVOR', '')
-if _ui_flavor == 'cashdesk' and not os.environ.get('RUSTDESK_APP_NAME'):
+if not os.environ.get('RUSTDESK_APP_NAME'):
     os.environ['RUSTDESK_APP_NAME'] = 'TnursRemoteDesk'
 _app_name = os.environ.get('RUSTDESK_APP_NAME', '')
 _exe_base = _app_name.lower() if _app_name else 'rustdesk'
@@ -43,9 +43,7 @@ flutter_dart_defines = (
 
 
 def apply_cashdesk_branding_files():
-    """Copy cashdesk icons into Flutter Windows paths (same as replace_cashdesk_icons.sh)."""
-    if _ui_flavor != 'cashdesk':
-        return
+    """Copy branding icons into Flutter Windows paths (same as replace_cashdesk_icons.sh)."""
     root = Path(__file__).resolve().parent
     ico = root / 'res' / 'cashdesk_icon.ico'
     if not ico.is_file():

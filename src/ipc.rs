@@ -297,7 +297,7 @@ pub enum Data {
     #[cfg(windows)]
     SyncWinCpuUsage(Option<f64>),
     FileTransferLog((String, String)),
-    #[cfg(windows)]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     ControlledSessionCount(usize),
     CmErr(String),
     // CM-side file reading responses (Windows only)
@@ -782,7 +782,7 @@ async fn handle(data: Data, stream: &mut Connection) {
         #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         Data::Plugin(plugin) => crate::plugin::ipc::handle_plugin(plugin, stream).await,
-        #[cfg(windows)]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         Data::ControlledSessionCount(_) => {
             allow_err!(
                 stream
@@ -1650,6 +1650,23 @@ pub async fn update_controlling_session_count(count: usize) -> ResultType<()> {
     let mut c = connect(1000, "").await?;
     c.send(&Data::ControllingSessionCount(count)).await?;
     Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn get_controlled_session_count_sync() -> usize {
+    get_controlled_session_count().unwrap_or(0)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tokio::main(flavor = "current_thread")]
+pub async fn get_controlled_session_count() -> ResultType<usize> {
+    let ms_timeout = 1_000;
+    let mut c = connect(ms_timeout, "").await?;
+    c.send(&Data::ControlledSessionCount(0)).await?;
+    if let Some(Data::ControlledSessionCount(n)) = c.next_timeout(ms_timeout).await? {
+        return Ok(n);
+    }
+    Ok(0)
 }
 
 #[cfg(target_os = "linux")]

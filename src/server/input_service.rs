@@ -781,7 +781,9 @@ pub fn fix_key_down_timeout_loop() {
     });
     if let Err(err) = ctrlc::set_handler(move || {
         fix_key_down_timeout_at_exit();
-        std::process::exit(0); // will call atexit on posix, but not on Windows
+        if crate::exit_guard::confirm_shutdown() {
+            std::process::exit(0); // will call atexit on posix, but not on Windows
+        }
     }) {
         log::error!("Failed to set Ctrl-C handler: {}", err);
     }

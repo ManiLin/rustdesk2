@@ -1697,6 +1697,19 @@ pub fn main_set_permanent_password_with_result(password: String) -> bool {
     ui_interface::set_permanent_password_with_result(password)
 }
 
+pub fn main_verify_permanent_password(password: String) -> SyncReturn<bool> {
+    SyncReturn(config::Config::matches_permanent_password_plain(&password))
+}
+
+pub fn main_controlled_session_count() -> SyncReturn<i32> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        return SyncReturn(crate::exit_guard::controlled_session_count() as i32);
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    SyncReturn(0)
+}
+
 pub fn main_get_fingerprint() -> String {
     get_fingerprint()
 }

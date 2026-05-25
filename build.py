@@ -34,6 +34,7 @@ exe_path = 'target/release/' + hbb_name
 
 _dart_defines = []
 if _ui_flavor:
+    os.environ['RUSTDESK_DESKTOP_UI_FLAVOR'] = _ui_flavor
     _dart_defines.append(f'DESKTOP_UI_FLAVOR={_ui_flavor}')
 if _app_name:
     _dart_defines.append(f'APP_DISPLAY_NAME={_app_name}')

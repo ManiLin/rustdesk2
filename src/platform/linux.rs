@@ -1938,6 +1938,10 @@ fn switch_service(stop: bool) -> String {
 }
 
 pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
+    if !crate::exit_guard::confirm_shutdown() {
+        log::info!("Uninstalling service cancelled (exit password).");
+        return true;
+    }
     if !has_cmd("systemctl") {
         // Failed when installed + flutter run + started by `show_new_window`.
         return false;
@@ -2205,5 +2209,50 @@ pub fn has_gnome_shortcuts_inhibitor_permission() -> bool {
             log::debug!("Failed to query shortcuts inhibitor permission: {}", e);
             false
         }
+    }
+}
+
+pub fn prompt_exit_password() -> Option<String> {
+    if has_cmd("zenity") {
+        let title = crate::client::translate("Exit password required".to_owned());
+        let prompt = crate::client::translate(
+            "Enter password to stop service while remote sessions are active".to_owned(),
+        );
+        let out = std::process::Command::new("zenity")
+            .args([
+                "--password",
+                "--title",
+                &title,
+                "--text",
+                &prompt,
+                "--hide-text",
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let pwd = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if pwd.is_empty() {
+            None
+        } else {
+            Some(pwd)
+        }
+    } else {
+        None
+    }
+}
+
+pub fn show_exit_password_wrong() {
+    if has_cmd("zenity") {
+        let _ = std::process::Command::new("zenity")
+            .args([
+                "--error",
+                "--title",
+                &crate::client::translate("Exit password required".to_owned()),
+                "--text",
+                &crate::client::translate("Wrong password".to_owned()),
+            ])
+            .spawn();
     }
 }

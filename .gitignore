@@ -59,3 +59,5 @@ libsciter.dylib
 flutter/web/
 # libs/hbb_common — субмодуль (.gitmodules); не игнорировать целиком: иначе git не отслеживает привязку к коммиту.
 # Артефакты сборки внутри: см. libs/hbb_common/.gitignore (target и т.д.)
+scripts/github-push-setup.sh
+scripts/push-master.sh

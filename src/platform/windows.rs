@@ -2926,6 +2926,10 @@ impl Drop for WakeLock {
 }
 
 pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
+    if !crate::exit_guard::confirm_shutdown() {
+        log::info!("Uninstalling service cancelled (exit password).");
+        return true;
+    }
     log::info!("Uninstalling service...");
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     Config::set_option("stop-service".into(), "Y".into());
@@ -4366,5 +4370,84 @@ ProcessId=10136
             arg,
         );
         assert_eq!(pids.len(), 0);
+    }
+}
+
+fn utf16z(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn utf16_to_string(v: &[u16]) -> String {
+    let len = v.iter().position(|&c| c == 0).unwrap_or(v.len());
+    String::from_utf16_lossy(&v[..len])
+}
+
+/// Password dialog for cashdesk shutdown guard (tray / stop service).
+#[cfg(windows)]
+pub fn prompt_exit_password() -> Option<String> {
+    use std::ptr::null_mut;
+    use winapi::shared::minwindef::DWORD;
+    use winapi::shared::winerror::ERROR_SUCCESS;
+    use winapi::um::wincred::*;
+
+    let caption = utf16z(&format!(
+        "{} - {}",
+        crate::get_app_name(),
+        crate::client::translate("Exit password required".to_owned())
+    ));
+    let message = utf16z(&crate::client::translate(
+        "Enter password to stop service while remote sessions are active".to_owned(),
+    ));
+    let mut ui = CREDUI_INFOW {
+        cbSize: std::mem::size_of::<CREDUI_INFOW>() as DWORD,
+        hwndParent: null_mut(),
+        pszMessageText: message.as_ptr(),
+        pszCaptionText: caption.as_ptr(),
+        hbmBanner: null_mut(),
+        dwFlags: CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_DO_NOT_PERSIST,
+        pszAppName: null_mut(),
+        pszTargetName: null_mut(),
+    };
+    let mut username = [0u16; 128];
+    let mut password = [0u16; 128];
+    let mut auth_package = 0u32;
+    let mut save = 0i32;
+    let err = unsafe {
+        CredUIPromptForCredentialsW(
+            &mut ui,
+            null_mut(),
+            username.as_mut_ptr(),
+            username.len() as DWORD,
+            password.as_mut_ptr(),
+            password.len() as DWORD,
+            &mut auth_package,
+            &mut save,
+            CREDUIWIN_GENERIC,
+        )
+    };
+    if err != ERROR_SUCCESS {
+        return None;
+    }
+    let pwd = utf16_to_string(&password);
+    if pwd.is_empty() {
+        None
+    } else {
+        Some(pwd)
+    }
+}
+
+#[cfg(windows)]
+pub fn show_exit_password_wrong() {
+    let text = crate::client::translate("Wrong password".to_owned());
+    let caption = crate::client::translate("Exit password required".to_owned());
+    let text = utf16z(&text);
+    let caption = utf16z(&caption);
+    unsafe {
+        winapi::um::winuser::MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            winapi::um::winuser::MB_OK | winapi::um::winuser::MB_ICONWARNING,
+        );
     }
 }

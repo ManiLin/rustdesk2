@@ -170,15 +170,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let Ok(event) = menu_channel.try_recv() {
             if let Some(quit_i) = &quit_i {
                 if event.id == quit_i.id() {
-                    /* failed in windows, seems no permission to check system process
-                    if !crate::check_process("--server", false) {
-                        *control_flow = ControlFlow::Exit;
-                        return;
-                    }
-                    */
-                    if !crate::platform::uninstall_service(false, false) {
-                        *control_flow = ControlFlow::Exit;
-                    }
+                    let _ = crate::platform::uninstall_service(false, false);
                 } else if event.id == open_i.id() {
                     open_func();
                 }

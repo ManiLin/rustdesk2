@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
-# Cashdesk (forcash) branding: icons + Windows version info + default app name hint.
-# Called from CI when RUSTDESK_DESKTOP_UI_FLAVOR=cashdesk.
+# Branding: custom icons + Windows version info (all builds).
 set -euo pipefail
-
-if [ "${RUSTDESK_DESKTOP_UI_FLAVOR:-}" != "cashdesk" ]; then
-  echo "Not a cashdesk build, skipping branding."
-  exit 0
-fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 APP_NAME="${RUSTDESK_APP_NAME:-TnursRemoteDesk}"
 EXE_BASE="$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')"
 
-echo "Applying cashdesk branding: app=$APP_NAME exe=${EXE_BASE}.exe"
+echo "Applying branding: app=$APP_NAME exe=${EXE_BASE}.exe"
 
 # App icon (graphic only, no "Татнефть-УРС" text)
 cp -v "$ROOT/res/cashdesk_icon.png"      "$ROOT/res/icon.png"
@@ -42,4 +36,4 @@ if [ -f "$RUNNER_RC" ]; then
   echo "Patched $RUNNER_RC"
 fi
 
-echo "Cashdesk branding applied."
+echo "Branding applied."

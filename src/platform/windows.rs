@@ -1,4 +1,4 @@
-use super::{CursorData, ResultType};
+^X^Cuse super::{CursorData, ResultType};
 use crate::{
     common::PORTABLE_APPNAME_RUNTIME_ENV_KEY,
     custom_server::*,
@@ -4404,9 +4404,6 @@ pub fn prompt_exit_password() -> Option<String> {
         pszMessageText: message.as_ptr(),
         pszCaptionText: caption.as_ptr(),
         hbmBanner: null_mut(),
-        dwFlags: CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_DO_NOT_PERSIST,
-        pszAppName: null_mut(),
-        pszTargetName: null_mut(),
     };
     let mut username = [0u16; 128];
     let mut password = [0u16; 128];
@@ -4416,13 +4413,15 @@ pub fn prompt_exit_password() -> Option<String> {
         CredUIPromptForCredentialsW(
             &mut ui,
             null_mut(),
+            null_mut(),
             username.as_mut_ptr(),
             username.len() as DWORD,
             password.as_mut_ptr(),
             password.len() as DWORD,
             &mut auth_package,
-            &mut save,
+            &mut save as *mut i32,
             CREDUIWIN_GENERIC,
+            0u32,
         )
     };
     if err != ERROR_SUCCESS {

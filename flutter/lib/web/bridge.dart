@@ -1347,6 +1347,14 @@ class RustdeskImpl {
     throw UnimplementedError("mainSetPermanentPasswordWithResult");
   }
 
+  bool mainVerifyPermanentPassword({required String password, dynamic hint}) {
+    throw UnimplementedError("mainVerifyPermanentPassword");
+  }
+
+  int mainControlledSessionCount({dynamic hint}) {
+    throw UnimplementedError("mainControlledSessionCount");
+  }
+
   Future<bool> mainCheckSuperUserPermission({dynamic hint}) {
     throw UnimplementedError("mainCheckSuperUserPermission");
   }

@@ -618,9 +618,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return Align(
         alignment: Alignment.centerRight,
         child: OutlinedButton(
-          onPressed: () {
-            SystemNavigator.pop(); // Close the application
-            // https://github.com/flutter/flutter/issues/66631
+          onPressed: () async {
+            if (!await confirmCashdeskExitIfSessionsActive()) {
+              return;
+            }
+            if (bind.mainIsInstalled()) {
+              await start_service(false);
+              return;
+            }
+            SystemNavigator.pop();
             if (isWindows) {
               exit(0);
             }

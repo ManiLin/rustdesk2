@@ -313,6 +313,10 @@ fn correct_app_name(s: &str) -> String {
 }
 
 pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {
+    if !crate::exit_guard::confirm_shutdown() {
+        log::info!("Uninstalling service cancelled (exit password).");
+        return true;
+    }
     // to-do: do together with win/linux about refactory start/stop service
     if !is_installed_daemon(false) {
         return false;
@@ -1227,4 +1231,46 @@ fn get_bundle_id() -> Option<String> {
             .to_string();
         Some(bundle_id_str)
     }
+}
+
+pub fn prompt_exit_password() -> Option<String> {
+    let title = crate::client::translate("Exit password required".to_owned());
+    let prompt = crate::client::translate(
+        "Enter password to stop service while remote sessions are active".to_owned(),
+    );
+    let script = format!(
+        "display dialog \"{}\" with title \"{}\" default answer \"\" with hidden answer",
+        prompt.replace('"', "\\\""),
+        title.replace('"', "\\\"")
+    );
+    let out = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let pwd = stdout
+        .split(':')
+        .last()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if pwd.is_empty() {
+        None
+    } else {
+        Some(pwd)
+    }
+}
+
+pub fn show_exit_password_wrong() {
+    let title = crate::client::translate("Exit password required".to_owned());
+    let text = crate::client::translate("Wrong password".to_owned());
+    let script = format!(
+        "display alert \"{}\" message \"{}\" as warning",
+        title.replace('"', "\\\""),
+        text.replace('"', "\\\"")
+    );
+    let _ = std::process::Command::new("osascript").arg("-e").arg(script).spawn();
 }

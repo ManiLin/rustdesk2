@@ -51,6 +51,7 @@ mod port_forward;
 pub mod plugin;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod exit_guard;
 mod tray;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

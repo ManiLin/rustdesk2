@@ -55,6 +55,7 @@ pub mod plugin;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod exit_guard;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod tray;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

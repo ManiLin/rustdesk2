@@ -4407,21 +4407,19 @@ pub fn prompt_exit_password() -> Option<String> {
     };
     let mut username = [0u16; 128];
     let mut password = [0u16; 128];
-    let mut auth_package = 0u32;
     let mut save = 0i32;
     let err = unsafe {
         CredUIPromptForCredentialsW(
             &mut ui,
             null_mut(),
             null_mut(),
+            0,
             username.as_mut_ptr(),
             username.len() as DWORD,
             password.as_mut_ptr(),
             password.len() as DWORD,
-            &mut auth_package,
             &mut save as *mut i32,
             CREDUIWIN_GENERIC,
-            0u32,
         )
     };
     if err != ERROR_SUCCESS {

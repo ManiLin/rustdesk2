@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/main.dart';
+import 'package:flutter_hbb/common.dart' show gFFI;
 import 'package:flutter_hbb/models/platform_model.dart';
 
 const _kDesktopUiFlavor = String.fromEnvironment('DESKTOP_UI_FLAVOR');

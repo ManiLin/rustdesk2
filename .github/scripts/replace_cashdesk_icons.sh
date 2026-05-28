@@ -27,12 +27,14 @@ cp -v "$ROOT/res/cashdesk_icon.png" "$ROOT/flutter/assets/icon.png" 2>/dev/null 
 # Windows Flutter runner version metadata
 RUNNER_RC="$ROOT/flutter/windows/runner/Runner.rc"
 if [ -f "$RUNNER_RC" ]; then
-  sed -i \
+  # Portable in-place edit for GNU/BSD sed (macOS runner uses BSD sed).
+  sed -i.bak \
     -e "s/RustDesk Remote Desktop/${APP_NAME} Remote Desktop/g" \
     -e "s/VALUE \"InternalName\", \"rustdesk\"/VALUE \"InternalName\", \"${EXE_BASE}\"/g" \
     -e "s/VALUE \"OriginalFilename\", \"rustdesk.exe\"/VALUE \"OriginalFilename\", \"${EXE_BASE}.exe\"/g" \
     -e "s/VALUE \"ProductName\", \"RustDesk\"/VALUE \"ProductName\", \"${APP_NAME}\"/g" \
     "$RUNNER_RC"
+  rm -f "${RUNNER_RC}.bak"
   echo "Patched $RUNNER_RC"
 fi
 

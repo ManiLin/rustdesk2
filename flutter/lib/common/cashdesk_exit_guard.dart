@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common.dart' show gFFI;
+import 'package:flutter_hbb/common.dart'
+    show CustomAlertDialog, dialogButton, gFFI;
 import 'package:flutter_hbb/models/platform_model.dart';
 
 const _kDesktopUiFlavor = String.fromEnvironment('DESKTOP_UI_FLAVOR');
@@ -19,7 +20,7 @@ Future<bool> confirmCashdeskExitIfSessionsActive() async {
   final password = TextEditingController();
   var err = '';
   final ok = await gFFI.dialogManager.show<bool>((setState, close, context) {
-    submit() async {
+    submit() {
       final pass = password.text;
       if (pass.isEmpty) {
         setState(() => err = _t('Password'));
@@ -32,7 +33,7 @@ Future<bool> confirmCashdeskExitIfSessionsActive() async {
       close(true);
     }
 
-    return AlertDialog(
+    return CustomAlertDialog(
       title: Text(_t('Exit password required')),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -54,9 +55,11 @@ Future<bool> confirmCashdeskExitIfSessionsActive() async {
         ],
       ),
       actions: [
-        TextButton(onPressed: close, child: Text(_t('Cancel'))),
-        TextButton(onPressed: submit, child: Text(_t('OK'))),
+        dialogButton('Cancel', onPressed: close, isOutline: true),
+        dialogButton('OK', onPressed: submit),
       ],
+      onSubmit: submit,
+      onCancel: close,
     );
   });
   return ok == true;

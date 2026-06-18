@@ -545,23 +545,29 @@ def main():
             build_flutter_windows(version, features, args.skip_portable_pack)
             return
         system2('cargo build --release --features ' + features)
-        # system2('upx.exe target/release/rustdesk.exe')
-        system2('mv target/release/rustdesk.exe target/release/RustDesk.exe')
+        rename_release_exe('target/release')
+        release_exe = f'target/release/{hbb_name}'
+        if not os.path.isfile(release_exe):
+            system2('mv target/release/rustdesk.exe ' + release_exe)
         pa = os.environ.get('P')
         if pa:
             # https://certera.com/kb/tutorial-guide-for-safenet-authentication-client-for-code-signing/
             system2(
                 f'signtool sign /a /v /p {pa} /debug /f .\\cert.pfx /t http://timestamp.digicert.com  '
-                'target\\release\\rustdesk.exe')
+                + release_exe.replace('/', '\\'))
         else:
             print('Not signed')
-        system2(
-            f'cp -rf target/release/RustDesk.exe {res_dir}')
+        os.makedirs(res_dir, exist_ok=True)
+        system2(f'cp -f {release_exe} {res_dir}/')
+        if not os.path.isfile(f'{res_dir}/sciter.dll'):
+            system2(
+                'curl -LJ -o ' + res_dir + '/sciter.dll '
+                'https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x64/sciter.dll')
         os.chdir('libs/portable')
         system2('pip3 install -r requirements.txt')
         system2(
-            f'python3 ./generate.py -f ../../{res_dir} -o . -e ../../{res_dir}/rustdesk-{version}-win7-install.exe')
-        system2('mv ../../{res_dir}/rustdesk-{version}-win7-install.exe ../..')
+            f'python3 ./generate.py -f ../../{res_dir} -o . -e ../../{res_dir}/{hbb_name}')
+        system2('mv ./target/release/rustdesk-portable-packer.exe ../..')
     elif os.path.isfile('/usr/bin/pacman'):
         # pacman -S -needed base-devel
         system2("sed -i 's/pkgver=.*/pkgver=%s/g' res/PKGBUILD" % version)

@@ -39,10 +39,15 @@ struct UIHostHandler;
 pub fn start(args: &mut [String]) {
     #[cfg(target_os = "macos")]
     crate::platform::delegate::show_dock();
-    #[cfg(all(target_os = "linux", feature = "inline"))]
+    #[cfg(target_os = "linux")]
     {
-        let app_dir = std::env::var("APPDIR").unwrap_or("".to_string());
-        let mut so_path = "/usr/share/rustdesk/libsciter-gtk.so".to_owned();
+        let app_dir = std::env::var("APPDIR").unwrap_or_default();
+        let app_name = crate::get_app_name().to_lowercase();
+        let mut so_path = format!("/usr/share/{app_name}/libsciter-gtk.so");
+        let mut candidates = vec![
+            so_path.clone(),
+            "/usr/share/rustdesk/libsciter-gtk.so".to_owned(),
+        ];
         for (prefix, dir) in [
             ("", "/usr"),
             ("", "/app"),
@@ -51,7 +56,15 @@ pub fn start(args: &mut [String]) {
         ]
         .iter()
         {
-            let path = format!("{prefix}{dir}/share/rustdesk/libsciter-gtk.so");
+            candidates.push(format!("{prefix}{dir}/share/{app_name}/libsciter-gtk.so"));
+            candidates.push(format!("{prefix}{dir}/share/rustdesk/libsciter-gtk.so"));
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                candidates.insert(0, parent.join("libsciter-gtk.so").to_string_lossy().to_string());
+            }
+        }
+        for path in candidates {
             if std::path::Path::new(&path).exists() {
                 so_path = path;
                 break;

@@ -22,27 +22,6 @@ fn build_mac() {
     println!("cargo:rerun-if-changed={}", file);
 }
 
-#[cfg(all(windows, feature = "inline"))]
-fn build_manifest() {
-    use std::io::Write;
-    if std::env::var("PROFILE").unwrap() == "release" {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("res/icon.ico")
-            .set_language(winapi::um::winnt::MAKELANGID(
-                winapi::um::winnt::LANG_ENGLISH,
-                winapi::um::winnt::SUBLANG_ENGLISH_US,
-            ))
-            .set_manifest_file("res/manifest.xml");
-        match res.compile() {
-            Err(e) => {
-                write!(std::io::stderr(), "{}", e).unwrap();
-                std::process::exit(1);
-            }
-            Ok(_) => {}
-        }
-    }
-}
-
 fn install_android_deps() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     if target_os != "android" {
@@ -90,5 +69,68 @@ fn main() {
         build_mac();
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
     }
+    gen_sciter_ui_icons();
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+/// Embed `res/icon.png` / `res/mac-icon.png` for Sciter UI (window caption, chatbox, etc.).
+fn gen_sciter_ui_icons() {
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    for (out_name, path) in [
+        ("sciter_icon_default.txt", "res/icon.png"),
+        ("sciter_icon_macos.txt", "res/mac-icon.png"),
+    ] {
+        println!("cargo:rerun-if-changed={}", path);
+        let data_url = std::fs::read(path)
+            .map(|bytes| format!("data:image/png;base64,{}", base64_encode(&bytes)))
+            .unwrap_or_default();
+        let out_path = std::path::Path::new(&out_dir).join(out_name);
+        std::fs::write(out_path, data_url).ok();
+    }
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied().unwrap_or(0);
+        let b2 = chunk.get(2).copied().unwrap_or(0);
+        let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
+        out.push(TABLE[(n >> 18) & 63] as char);
+        out.push(TABLE[(n >> 12) & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+#[cfg(all(windows, feature = "inline"))]
+fn build_manifest() {
+    use std::io::Write;
+    if std::env::var("PROFILE").unwrap() == "release" {
+        let mut res = winres::WindowsResource::new();
+        res.set_icon("res/icon.ico")
+            .set_language(winapi::um::winnt::MAKELANGID(
+                winapi::um::winnt::LANG_ENGLISH,
+                winapi::um::winnt::SUBLANG_ENGLISH_US,
+            ))
+            .set_manifest_file("res/manifest.xml");
+        match res.compile() {
+            Err(e) => {
+                write!(std::io::stderr(), "{}", e).unwrap();
+                std::process::exit(1);
+            }
+            Ok(_) => {}
+        }
+    }
 }

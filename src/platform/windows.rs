@@ -2128,8 +2128,21 @@ unsafe fn set_default_dll_directories() -> bool {
 }
 
 fn get_custom_icon(exe: &str) -> Option<String> {
-    if crate::is_custom_client() {
-        if let Some(p) = PathBuf::from(exe).parent() {
+    if let Some(p) = PathBuf::from(exe).parent() {
+        let icon_ico = p.join("icon.ico");
+        if icon_ico.is_file() {
+            if let Ok(metadata) = std::fs::symlink_metadata(&icon_ico) {
+                if metadata.is_symlink() {
+                    log::warn!(
+                        "Custom icon at {:?} is a symlink, refusing to use it.",
+                        icon_ico
+                    );
+                } else {
+                    return Some(icon_ico.to_string_lossy().to_string());
+                }
+            }
+        }
+        if crate::is_custom_client() {
             let alter_icon_path = p.join("data\\flutter_assets\\assets\\icon.ico");
             if alter_icon_path.exists() {
                 // Verify that the icon is not a symlink for security

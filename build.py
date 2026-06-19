@@ -563,6 +563,8 @@ def main():
             system2(
                 'curl -LJ -o ' + res_dir + '/sciter.dll '
                 'https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x64/sciter.dll')
+        if os.path.isfile('res/icon.ico'):
+            system2(f'cp -f res/icon.ico {res_dir}/')
         os.chdir('libs/portable')
         system2('pip3 install -r requirements.txt')
         system2(

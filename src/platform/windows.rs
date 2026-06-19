@@ -2238,8 +2238,21 @@ unsafe fn set_default_dll_directories() -> bool {
 
 fn get_custom_icon(install_dir: &str, exe: &str) -> Option<String> {
     const RELATIVE_ICON_PATH: &str = "data\\flutter_assets\\assets\\icon.ico";
-    if crate::is_custom_client() {
-        if let Some(p) = PathBuf::from(exe).parent() {
+    if let Some(p) = PathBuf::from(exe).parent() {
+        let icon_ico = p.join("icon.ico");
+        if icon_ico.is_file() {
+            if let Ok(metadata) = std::fs::symlink_metadata(&icon_ico) {
+                if metadata.is_symlink() {
+                    log::warn!(
+                        "Custom icon at {:?} is a symlink, refusing to use it.",
+                        icon_ico
+                    );
+                } else {
+                    return Some(icon_ico.to_string_lossy().to_string());
+                }
+            }
+        }
+        if crate::is_custom_client() {
             let alter_icon_path = p.join(RELATIVE_ICON_PATH);
             if alter_icon_path.exists() {
                 // During installation, files under `install_dir` may not exist yet.

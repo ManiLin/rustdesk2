@@ -82,8 +82,10 @@ class _FileManagerPageState extends State<FileManagerPage> {
         isSharedPassword: widget.isSharedPassword,
         forceRelay: widget.forceRelay);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      gFFI.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+        gFFI.dialogManager
+            .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      }
     });
     gFFI.ffiModel.updateEventListener(gFFI.sessionId, widget.id);
     WakelockManager.enable(_uniqueKey);

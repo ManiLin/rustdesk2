@@ -143,8 +143,10 @@ class _RemotePageState extends State<RemotePage>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
-      _ffi.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+        _ffi.dialogManager
+            .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      }
     });
     WakelockManager.enable(_uniqueKey);
 
@@ -495,8 +497,10 @@ class _RemotePageState extends State<RemotePage>
         if (imageReady) {
           // If the privacy mode(disable physical displays) is switched,
           // we should not dismiss the dialog immediately.
-          if (DateTime.now().difference(togglePrivacyModeTime) >
-              const Duration(milliseconds: 3000)) {
+          final dismissDelay = (isCashdeskBuild || bind.isIncomingOnly())
+              ? Duration.zero
+              : const Duration(milliseconds: 3000);
+          if (DateTime.now().difference(togglePrivacyModeTime) > dismissDelay) {
             // `dismissAll()` is to ensure that the state is clean.
             // It's ok to call dismissAll() here.
             _ffi.dialogManager.dismissAll();

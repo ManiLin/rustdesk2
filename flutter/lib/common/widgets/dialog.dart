@@ -919,8 +919,10 @@ _connectDialog(
         rememberPassword,
       );
       close();
-      dialogManager.showLoading(translate('Logging in...'),
-          onCancel: closeConnection);
+      if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+        dialogManager.showLoading(translate('Logging in...'),
+            onCancel: closeConnection);
+      }
     }
 
     descWidget(String text) {
@@ -2281,8 +2283,10 @@ void enter2FaDialog(
     submit() {
       gFFI.send2FA(sessionId, controller.text.trim(), trustThisDevice.value);
       close();
-      dialogManager.showLoading(translate('Logging in...'),
-          onCancel: closeConnection);
+      if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+        dialogManager.showLoading(translate('Logging in...'),
+            onCancel: closeConnection);
+      }
     }
 
     late Dialog2FaField codeField;

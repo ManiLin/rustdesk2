@@ -98,15 +98,15 @@ fn base64_encode(data: &[u8]) -> String {
         let b1 = chunk.get(1).copied().unwrap_or(0);
         let b2 = chunk.get(2).copied().unwrap_or(0);
         let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
-        out.push(TABLE[(n >> 18) & 63] as char);
-        out.push(TABLE[(n >> 12) & 63] as char);
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
         out.push(if chunk.len() > 1 {
-            TABLE[(n >> 6) & 63] as char
+            TABLE[((n >> 6) & 63) as usize] as char
         } else {
             '='
         });
         out.push(if chunk.len() > 2 {
-            TABLE[n & 63] as char
+            TABLE[(n & 63) as usize] as char
         } else {
             '='
         });

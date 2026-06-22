@@ -489,7 +489,7 @@ function self.ready() {
     } else {
         centerize(w, h);
     }
-    if (!is_port_forward) connecting();
+    if (!is_port_forward && !handler.is_incoming_only()) connecting();
     if (is_file_transfer) initializeFileTransfer();
     if (is_port_forward) initializePortForward();
 }
@@ -594,6 +594,5 @@ handler.setPermission = function(name, enabled) {
 }
 
 handler.closeSuccess = function() {
-    // handler.msgbox("success", "Successful", "Ready to go.");
-    handler.msgbox("", "", "");
+    closeMsgbox();
 }

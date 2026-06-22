@@ -1609,12 +1609,14 @@ impl<T: InvokeUiSession> Session<T> {
                             }
                         }
                     } else if !self.is_terminal() {
-                        self.msgbox(
-                            "success",
-                            "Successful",
-                            "Connected, waiting for image...",
-                            "",
-                        );
+                        if !hbb_common::config::is_incoming_only() {
+                            self.msgbox(
+                                "success",
+                                "Successful",
+                                "Connected, waiting for image...",
+                                "",
+                            );
+                        }
                     }
                 }
             }
@@ -1821,12 +1823,14 @@ impl<T: InvokeUiSession> Interface for Session<T> {
         if self.is_file_transfer() {
             self.close_success();
         } else if !self.is_port_forward() && !self.is_terminal() {
-            self.msgbox(
-                "success",
-                "Successful",
-                "Connected, waiting for image...",
-                "",
-            );
+            if !hbb_common::config::is_incoming_only() {
+                self.msgbox(
+                    "success",
+                    "Successful",
+                    "Connected, waiting for image...",
+                    "",
+                );
+            }
         }
         self.on_connected(self.lc.read().unwrap().conn_type);
         #[cfg(windows)]

@@ -101,7 +101,9 @@ class _TerminalPageState extends State<TerminalPage>
           TerminalConnectionManager.hasConnection(widget.id) &&
               TerminalConnectionManager.getTerminalCount(widget.id) > 1;
 
-      if (!isExistingConnection) {
+      if (!isExistingConnection &&
+          !isCashdeskBuild &&
+          !bind.isIncomingOnly()) {
         // First terminal - show loading dialog, wait for onReady
         _ffi.dialogManager
             .showLoading(translate('Connecting...'), onCancel: closeConnection);

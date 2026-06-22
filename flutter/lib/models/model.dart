@@ -303,12 +303,14 @@ class FfiModel with ChangeNotifier {
   }
 
   handleCachedPeerData(CachedPeerData data, String peerId) async {
-    handleMsgBox({
-      'type': 'success',
-      'title': 'Successful',
-      'text': kMsgboxTextWaitingForImage,
-      'link': '',
-    }, sessionId, peerId);
+    if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+      handleMsgBox({
+        'type': 'success',
+        'title': 'Successful',
+        'text': kMsgboxTextWaitingForImage,
+        'link': '',
+      }, sessionId, peerId);
+    }
     updatePrivacyMode(data.updatePrivacyMode, sessionId, peerId);
     setConnectionType(peerId, data.secure, data.direct, data.streamType);
     await handlePeerInfo(data.peerInfo, peerId, true);
@@ -894,6 +896,14 @@ class FfiModel with ChangeNotifier {
     final text = evt['text'];
     final link = evt['link'];
 
+    if (isCashdeskBuild || bind.isIncomingOnly()) {
+      if (type == 'connecting' ||
+          text == kMsgboxTextWaitingForImage ||
+          (type == 'success' && title == 'Successful')) {
+        return;
+      }
+    }
+
     // Disable relative mouse mode on any error-type message to ensure cursor is released.
     // This includes connection errors, session-ending messages, elevation errors, etc.
     // Safety: releasing pointer lock on errors prevents the user from being stuck.
@@ -1061,8 +1071,10 @@ class FfiModel with ChangeNotifier {
     bind.sessionReconnect(sessionId: sessionId, forceRelay: forceRelay);
     clearPermissions();
     dialogManager.dismissAll();
-    dialogManager.showLoading(translate('Connecting...'),
-        onCancel: closeConnection);
+    if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+      dialogManager.showLoading(translate('Connecting...'),
+          onCancel: closeConnection);
+    }
   }
 
   Future<void> showRelayHintDialog(
@@ -1122,6 +1134,9 @@ class FfiModel with ChangeNotifier {
 
   void showConnectedWaitingForImage(OverlayDialogManager dialogManager,
       SessionID sessionId, String type, String title, String text) {
+    if (isCashdeskBuild || bind.isIncomingOnly()) {
+      return;
+    }
     onClose() {
       closeConnection();
     }

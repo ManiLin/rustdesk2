@@ -89,8 +89,10 @@ class _TerminalPageState extends State<TerminalPage>
         mainGetLocalBoolOptionSync(kOptionEnableShowTerminalExtraKeys);
     // Initialize terminal connection
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ffi.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      if (!isCashdeskBuild && !bind.isIncomingOnly()) {
+        _ffi.dialogManager
+            .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      }
 
       if (_showTerminalExtraKeys) {
         _updateKeyboardHeight();

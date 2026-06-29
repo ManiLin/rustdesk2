@@ -9,6 +9,22 @@ pub use windows::*;
 pub mod windows;
 
 #[cfg(windows)]
+pub mod win_ad;
+
+#[cfg(windows)]
+pub use win_ad::{get_active_user_display_name, is_target_ad_domain};
+
+#[cfg(not(windows))]
+pub fn is_target_ad_domain() -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+pub fn get_active_user_display_name() -> Option<String> {
+    None
+}
+
+#[cfg(windows)]
 pub mod win_device;
 
 #[cfg(target_os = "macos")]

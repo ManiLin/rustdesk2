@@ -524,8 +524,14 @@ pub fn core_main() -> Option<Vec<String>> {
             } else if crate::platform::is_installed() && is_root() {
                 let max = args.len() - 1;
                 let pos = args.iter().position(|x| x == "--token").unwrap_or(max);
-                if pos < max {
-                    let token = args[pos + 1].to_owned();
+                let token = if pos < max {
+                    args[pos + 1].to_owned()
+                } else {
+                    hbb_common::config::DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.to_owned()
+                };
+                if token.is_empty() {
+                    println!("--token is required (or rebuild with RUSTDESK_ASSIGN_API_TOKEN)!");
+                } else {
                     let id = crate::ipc::get_id();
                     let uuid = crate::encode64(hbb_common::get_uuid());
                     let get_value = |c: &str| {
@@ -616,8 +622,6 @@ pub fn core_main() -> Option<Vec<String>> {
                             }
                         }
                     }
-                } else {
-                    println!("--token is required!");
                 }
             } else {
                 println!("Installation and administrative privileges required!");

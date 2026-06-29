@@ -55,6 +55,7 @@ struct InfoUploaded {
     last_uploaded: Option<Instant>,
     id: String,
     username: Option<String>,
+    address_book_alias: Option<String>,
 }
 
 impl Default for InfoUploaded {
@@ -65,18 +66,20 @@ impl Default for InfoUploaded {
             last_uploaded: None,
             id: "".to_owned(),
             username: None,
+            address_book_alias: None,
         }
     }
 }
 
 impl InfoUploaded {
-    fn uploaded(url: String, id: String, username: String) -> Self {
+    fn uploaded(url: String, id: String, username: String, address_book_alias: Option<String>) -> Self {
         Self {
             uploaded: true,
             url,
             last_uploaded: None,
             id,
             username: Some(username),
+            address_book_alias,
         }
     }
 }
@@ -124,34 +127,21 @@ async fn start_hbbs_sync_async() {
                 // we may not be able to get the username before login after the next restart.
                 let mut v = crate::get_sysinfo();
                 let sys_username = v["username"].as_str().unwrap_or_default().to_string();
+                let sys_ab_alias = resolve_address_book_alias();
                 // Though the username comparison is only necessary on Windows,
                 // we still keep the comparison on other platforms for consistency.
-                let need_upload = (!info_uploaded.uploaded || info_uploaded.username.as_ref() != Some(&sys_username)) &&
-                    info_uploaded.last_uploaded.map(|x| x.elapsed() >= UPLOAD_SYSINFO_TIMEOUT).unwrap_or(true);
+                let need_upload = (!info_uploaded.uploaded
+                    || info_uploaded.username.as_ref() != Some(&sys_username)
+                    || info_uploaded.address_book_alias != sys_ab_alias)
+                    && info_uploaded
+                        .last_uploaded
+                        .map(|x| x.elapsed() >= UPLOAD_SYSINFO_TIMEOUT)
+                        .unwrap_or(true);
                 if need_upload {
                     v["version"] = json!(crate::VERSION);
                     v["id"] = json!(id);
                     v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
-                    let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
-                    if !ab_name.is_empty() {
-                        v[keys::OPTION_PRESET_ADDRESS_BOOK_NAME] = json!(ab_name);
-                    }
-                    let ab_tag = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_TAG);
-                    if !ab_tag.is_empty() {
-                        v[keys::OPTION_PRESET_ADDRESS_BOOK_TAG] = json!(ab_tag);
-                    }
-                    let ab_alias = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_ALIAS);
-                    if !ab_alias.is_empty() {
-                        v[keys::OPTION_PRESET_ADDRESS_BOOK_ALIAS] = json!(ab_alias);
-                    }
-                    let ab_password = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_PASSWORD);
-                    if !ab_password.is_empty() {
-                        v[keys::OPTION_PRESET_ADDRESS_BOOK_PASSWORD] = json!(ab_password);
-                    }
-                    let ab_note = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NOTE);
-                    if !ab_note.is_empty() {
-                        v[keys::OPTION_PRESET_ADDRESS_BOOK_NOTE] = json!(ab_note);
-                    }
+                    apply_address_book_sysinfo(&mut v, sys_ab_alias.as_deref());
                     let username = get_builtin_option(keys::OPTION_PRESET_USERNAME);
                     if !username.is_empty() {
                         v[keys::OPTION_PRESET_USERNAME] = json!(username);
@@ -201,7 +191,12 @@ async fn start_hbbs_sync_async() {
                                 }
                             };
                             if samever {
-                                info_uploaded = InfoUploaded::uploaded(url.clone(), id.clone(), sys_username);
+                                info_uploaded = InfoUploaded::uploaded(
+                                    url.clone(),
+                                    id.clone(),
+                                    sys_username,
+                                    sys_ab_alias,
+                                );
                                 log::info!("sysinfo not changed, skip upload");
                                 continue;
                             }
@@ -210,7 +205,12 @@ async fn start_hbbs_sync_async() {
                     match crate::post_request(url.replace("heartbeat", "sysinfo"), v, "").await {
                         Ok(x)  => {
                             if x == "SYSINFO_UPDATED" {
-                                info_uploaded = InfoUploaded::uploaded(url.clone(), id.clone(), sys_username);
+                                info_uploaded = InfoUploaded::uploaded(
+                                    url.clone(),
+                                    id.clone(),
+                                    sys_username,
+                                    sys_ab_alias,
+                                );
                                 log::info!("sysinfo updated");
                                 if !hash.is_empty() {
                                     config::Status::set("sysinfo_hash", hash);
@@ -282,6 +282,60 @@ fn heartbeat_url() -> String {
         return "".to_owned();
     }
     format!("{}/api/heartbeat", url)
+}
+
+fn should_apply_preset_address_book() -> bool {
+    let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
+    if ab_name.is_empty() {
+        return false;
+    }
+    if !hbb_common::config::DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD.is_empty() {
+        return crate::platform::is_target_ad_domain();
+    }
+    true
+}
+
+fn resolve_address_book_alias() -> Option<String> {
+    if !should_apply_preset_address_book() {
+        return None;
+    }
+    if crate::platform::is_target_ad_domain() {
+        return crate::platform::get_active_user_display_name();
+    }
+    let ab_alias = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_ALIAS);
+    if ab_alias.is_empty() {
+        None
+    } else {
+        Some(ab_alias)
+    }
+}
+
+fn apply_address_book_sysinfo(v: &mut Value, ab_alias: Option<&str>) {
+    if !should_apply_preset_address_book() {
+        return;
+    }
+    let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
+    v[keys::OPTION_PRESET_ADDRESS_BOOK_NAME] = json!(ab_name);
+    let ab_tag = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_TAG);
+    if !ab_tag.is_empty() {
+        v[keys::OPTION_PRESET_ADDRESS_BOOK_TAG] = json!(ab_tag);
+    }
+    if let Some(alias) = ab_alias.filter(|s| !s.is_empty()) {
+        v[keys::OPTION_PRESET_ADDRESS_BOOK_ALIAS] = json!(alias);
+    } else {
+        let static_alias = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_ALIAS);
+        if !static_alias.is_empty() {
+            v[keys::OPTION_PRESET_ADDRESS_BOOK_ALIAS] = json!(static_alias);
+        }
+    }
+    let ab_password = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_PASSWORD);
+    if !ab_password.is_empty() {
+        v[keys::OPTION_PRESET_ADDRESS_BOOK_PASSWORD] = json!(ab_password);
+    }
+    let ab_note = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NOTE);
+    if !ab_note.is_empty() {
+        v[keys::OPTION_PRESET_ADDRESS_BOOK_NOTE] = json!(ab_note);
+    }
 }
 
 fn handle_config_options(config_options: HashMap<String, String>) {

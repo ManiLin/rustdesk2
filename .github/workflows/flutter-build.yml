@@ -69,7 +69,7 @@ env:
   RUSTDESK_API_SERVER: "https://rustdeskweb.corp.tatnefturs.ru"
   RUSTDESK_PRESET_ADDRESS_BOOK_NAME: "corp.tatnefturs.ru"
   RUSTDESK_AD_DOMAIN: "corp.tatnefturs.ru"
-  RUSTDESK_ASSIGN_API_TOKEN: "68251cb040a223f884fd8bc42d352239"
+  RUSTDESK_ASSIGN_API_TOKEN: "${{ inputs.desktop-ui-flavor == 'cashdesk' && '' || '68251cb040a223f884fd8bc42d352239' }}"
   FILE_NAME_PREFIX: "tnursremotedesk"
   FILE_NAME_VERSION_SEP: "${{ inputs.desktop-ui-flavor == 'cashdesk' && '_' || '-' }}"
 

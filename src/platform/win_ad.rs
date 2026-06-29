@@ -3,8 +3,7 @@
 use hbb_common::config::DEFAULT_AD_DOMAIN_FROM_BUILD;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use winapi::shared::minwindef::{FALSE, TRUE};
-use winapi::shared::ntdef::NULL;
+use winapi::shared::minwindef::FALSE;
 
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -79,7 +78,7 @@ fn translate_sam_to_display(sam: &str) -> Option<String> {
             sam_wide.as_ptr(),
             ExtendedNameFormat::NameSamCompatible,
             ExtendedNameFormat::NameDisplay,
-            NULL,
+            std::ptr::null_mut(),
             &mut size,
         );
     }
@@ -94,7 +93,7 @@ fn translate_sam_to_display(sam: &str) -> Option<String> {
             ExtendedNameFormat::NameDisplay,
             buf.as_mut_ptr(),
             &mut size,
-        ) != TRUE
+        ) == 0
         {
             return None;
         }
@@ -130,6 +129,9 @@ fn build_sam_name(username: &str, dns_domain: &str) -> String {
 
 /// True when this PC is joined to the configured AD domain (e.g. corp.tatnefturs.ru).
 pub fn is_target_ad_domain() -> bool {
+    if !hbb_common::config::ad_address_book_features_enabled() {
+        return false;
+    }
     let dns = get_computer_dns_domain();
     !dns.is_empty() && domains_equal(&dns, target_ad_domain())
 }

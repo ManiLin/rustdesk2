@@ -18,6 +18,9 @@ static LOGGED_NO_TOKEN: AtomicBool = AtomicBool::new(false);
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start() {
+    if !config::ad_address_book_features_enabled() {
+        return;
+    }
     if DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.is_empty() {
         return;
     }

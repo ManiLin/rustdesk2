@@ -1,6 +1,6 @@
 //! Active Directory helpers for corp.tatnefturs.ru address book auto-registration.
 
-use hbb_common::config::DEFAULT_AD_DOMAIN_FROM_BUILD;
+use crate::app_build_config::DEFAULT_AD_DOMAIN_FROM_BUILD;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use winapi::shared::minwindef::FALSE;
@@ -129,7 +129,7 @@ fn build_sam_name(username: &str, dns_domain: &str) -> String {
 
 /// True when this PC is joined to the configured AD domain (e.g. corp.tatnefturs.ru).
 pub fn is_target_ad_domain() -> bool {
-    if !hbb_common::config::ad_address_book_features_enabled() {
+    if !crate::app_build_config::ad_address_book_features_enabled() {
         return false;
     }
     let dns = get_computer_dns_domain();

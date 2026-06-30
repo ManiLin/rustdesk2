@@ -527,7 +527,7 @@ pub fn core_main() -> Option<Vec<String>> {
                 let token = if pos < max {
                     args[pos + 1].to_owned()
                 } else {
-                    hbb_common::config::DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.to_owned()
+                    crate::app_build_config::DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.to_owned()
                 };
                 if token.is_empty() {
                     println!("--token is required (or rebuild with RUSTDESK_ASSIGN_API_TOKEN)!");

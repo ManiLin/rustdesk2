@@ -76,6 +76,8 @@ mod inventory_sync;
 #[cfg(not(target_os = "ios"))]
 mod ad_ab_assign;
 
+mod app_build_config;
+
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub mod clipboard_file;
 

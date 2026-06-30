@@ -285,14 +285,14 @@ fn heartbeat_url() -> String {
 }
 
 fn should_apply_preset_address_book() -> bool {
-    if !hbb_common::config::ad_address_book_features_enabled() {
+    if !crate::app_build_config::ad_address_book_features_enabled() {
         return false;
     }
     let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
     if ab_name.is_empty() {
         return false;
     }
-    if !hbb_common::config::DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD.is_empty() {
+    if !crate::app_build_config::DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD.is_empty() {
         return crate::platform::is_target_ad_domain();
     }
     true

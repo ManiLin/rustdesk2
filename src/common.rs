@@ -1907,7 +1907,7 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 
 /// Apply permanent password and lock rotation when baked in at build time.
 pub fn apply_build_preset_password() {
-    Config::apply_build_server_defaults();
+    crate::app_build_config::apply_build_server_defaults();
     Config::apply_preset_password_from_build();
 }
 

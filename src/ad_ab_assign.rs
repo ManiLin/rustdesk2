@@ -1,8 +1,11 @@
 //! Auto-assign domain PCs to shared address book via `/api/devices/cli` (embedded API token).
 
+use crate::app_build_config::{
+    self, DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD, DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD,
+};
 use hbb_common::{
     allow_err,
-    config::{self, Config, DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD, DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD},
+    config::{self, Config},
     log,
     tokio,
 };
@@ -18,7 +21,7 @@ static LOGGED_NO_TOKEN: AtomicBool = AtomicBool::new(false);
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start() {
-    if !config::ad_address_book_features_enabled() {
+    if !app_build_config::ad_address_book_features_enabled() {
         return;
     }
     if DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.is_empty() {

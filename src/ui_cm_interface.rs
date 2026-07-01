@@ -26,7 +26,7 @@ use hbb_common::{
 };
 #[cfg(target_os = "windows")]
 use hbb_common::{
-    config::{keys::*, option2bool},
+    config::keys::*,
     tokio::sync::Mutex as TokioMutex,
 };
 use serde_derive::Serialize;

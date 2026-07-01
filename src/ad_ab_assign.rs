@@ -96,12 +96,7 @@ async fn admin_request(
     body: Option<String>,
     token: &str,
 ) -> hbb_common::ResultType<String> {
-    let method = method.to_owned();
-    let header = auth_header_json(token);
-    let raw = tokio::task::spawn_blocking(move || {
-        crate::http_request_sync(url, method, body, header)
-    })
-    .await??;
+    let raw = crate::http_request_sync(url, method.to_owned(), body, auth_header_json(token))?;
     parse_http_body(&raw)
 }
 

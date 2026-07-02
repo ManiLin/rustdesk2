@@ -1017,10 +1017,7 @@ pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultTy
         }
     };
     if !resp.status().is_success() {
-        log::warn!(
-            "inventory portal update meta HTTP {}",
-            resp.status()
-        );
+        log::warn!("inventory portal update meta HTTP {}", resp.status());
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
         return Ok(());
     }
@@ -1030,7 +1027,11 @@ pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultTy
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
         return Ok(());
     }
-    let Some(ver) = meta.version.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+    let Some(ver) = meta
+        .version
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    else {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
         return Ok(());
     };

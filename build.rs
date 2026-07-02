@@ -85,7 +85,7 @@ fn gen_app_build_defaults() {
     let api_server = std::env::var("RUSTDESK_API_SERVER")
         .unwrap_or_else(|_| "https://rustdeskweb.corp.tatnefturs.ru".to_string());
     let preset_address_book_name = std::env::var("RUSTDESK_PRESET_ADDRESS_BOOK_NAME")
-        .unwrap_or_else(|_| "corp.tatnefturs.ru".to_string());
+        .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let ad_domain =
         std::env::var("RUSTDESK_AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.ru".to_string());
     let assign_api_token = if desktop_ui_flavor.eq_ignore_ascii_case("cashdesk") {
@@ -124,8 +124,7 @@ fn gen_sciter_ui_icons() {
 }
 
 fn base64_encode(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0];

@@ -23,11 +23,7 @@ pub use clipboard::ClipboardFile;
 use hbb_common::{
     allow_err, bail, bytes,
     bytes_codec::BytesCodec,
-    config::{
-        self,
-        keys::OPTION_ALLOW_WEBSOCKET,
-        Config, Config2,
-    },
+    config::{self, keys::OPTION_ALLOW_WEBSOCKET, Config, Config2},
     futures::StreamExt as _,
     futures_util::sink::SinkExt,
     log, password_security as password, timeout,

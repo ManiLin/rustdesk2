@@ -25,10 +25,7 @@ use hbb_common::{
     ResultType,
 };
 #[cfg(target_os = "windows")]
-use hbb_common::{
-    config::keys::*,
-    tokio::sync::Mutex as TokioMutex,
-};
+use hbb_common::{config::keys::*, tokio::sync::Mutex as TokioMutex};
 use serde_derive::Serialize;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 use std::iter::FromIterator;

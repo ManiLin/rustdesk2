@@ -72,7 +72,12 @@ impl Default for InfoUploaded {
 }
 
 impl InfoUploaded {
-    fn uploaded(url: String, id: String, username: String, address_book_alias: Option<String>) -> Self {
+    fn uploaded(
+        url: String,
+        id: String,
+        username: String,
+        address_book_alias: Option<String>,
+    ) -> Self {
         Self {
             uploaded: true,
             url,

@@ -6,8 +6,7 @@ use crate::app_build_config::{
 use hbb_common::{
     allow_err,
     config::{self, Config},
-    log,
-    tokio,
+    log, tokio,
 };
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -96,12 +95,17 @@ async fn admin_request(
     body: Option<String>,
     token: &str,
 ) -> hbb_common::ResultType<String> {
-    let raw = crate::http_request_sync(url, method.to_owned(), body, auth_header_json(token))?;
+    let method = method.to_owned();
+    let header = auth_header_json(token);
+    let raw =
+        tokio::task::spawn_blocking(move || crate::http_request_sync(url, method, body, header))
+            .await
+            .map_err(|e| hbb_common::anyhow::anyhow!("admin request task failed: {}", e))??;
     parse_http_body(&raw)
 }
 
 async fn resolve_collection(api: &str, token: &str, name: &str) -> Option<CollectionRef> {
-    if let Some(cached) = read_collection_cache() {
+    if let Some(cached) = read_collection_cache(name) {
         return Some(cached);
     }
     let url = format!(
@@ -125,9 +129,7 @@ async fn resolve_collection(api: &str, token: &str, name: &str) -> Option<Collec
     if !api_ok(&body) {
         log::warn!(
             "ad_ab_assign: address_book_collection/list: {}",
-            v.get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or(&body)
+            v.get("message").and_then(|m| m.as_str()).unwrap_or(&body)
         );
         return None;
     }
@@ -149,7 +151,7 @@ async fn resolve_collection(api: &str, token: &str, name: &str) -> Option<Collec
                     user_id,
                     collection_id,
                 };
-                write_collection_cache(found);
+                write_collection_cache(name, found);
                 return Some(found);
             }
         }
@@ -168,9 +170,13 @@ async fn resolve_collection(api: &str, token: &str, name: &str) -> Option<Collec
     None
 }
 
-fn read_collection_cache() -> Option<CollectionRef> {
+fn read_collection_cache(name: &str) -> Option<CollectionRef> {
     let s = config::Status::get(COLLECTION_CACHE_KEY);
     let mut parts = s.split(':');
+    let cached_name = parts.next()?;
+    if !cached_name.eq_ignore_ascii_case(name) {
+        return None;
+    }
     let user_id = parts.next()?.parse().ok()?;
     let collection_id = parts.next()?.parse().ok()?;
     if user_id == 0 {
@@ -182,10 +188,10 @@ fn read_collection_cache() -> Option<CollectionRef> {
     })
 }
 
-fn write_collection_cache(c: CollectionRef) {
+fn write_collection_cache(name: &str, c: CollectionRef) {
     config::Status::set(
         COLLECTION_CACHE_KEY,
-        format!("{}:{}", c.user_id, c.collection_id),
+        format!("{}:{}:{}", name, c.user_id, c.collection_id),
     );
 }
 
@@ -237,7 +243,11 @@ async fn upsert_address_book_entry(
         }
         let msg = serde_json::from_str::<Value>(&resp)
             .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(|s| s.to_owned()))
+            .and_then(|v| {
+                v.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_owned())
+            })
             .unwrap_or(resp);
         log::warn!("ad_ab_assign: update: {}", msg);
         return Err(hbb_common::anyhow::anyhow!(msg));
@@ -261,7 +271,11 @@ async fn upsert_address_book_entry(
     }
     let msg = serde_json::from_str::<Value>(&resp)
         .ok()
-        .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(|s| s.to_owned()))
+        .and_then(|v| {
+            v.get("message")
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_owned())
+        })
         .unwrap_or(resp.clone());
     if msg.contains("ItemExists") || msg.contains("exists") {
         return Ok(());
@@ -275,9 +289,7 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
     let token = assign_api_token();
     if token.is_empty() {
         if !LOGGED_NO_TOKEN.swap(true, Ordering::SeqCst) {
-            log::info!(
-                "ad_ab_assign: токен не задан — авто-привязка к адресной книге выключена."
-            );
+            log::info!("ad_ab_assign: токен не задан — авто-привязка к адресной книге выключена.");
         }
         return Ok(());
     }
@@ -311,8 +323,9 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             _ => return Ok(()),
         };
 
+        let status_value = format!("{}:{}", ab_name, alias);
         let last = config::Status::get(STATUS_KEY);
-        if last == alias {
+        if last == status_value {
             return Ok(());
         }
 
@@ -329,7 +342,7 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
         let peer_id = Config::get_id();
         match upsert_address_book_entry(&api, token, &peer_id, &alias, collection).await {
             Ok(()) => {
-                config::Status::set(STATUS_KEY, alias.clone());
+                config::Status::set(STATUS_KEY, status_value);
                 log::info!(
                     "ad_ab_assign: устройство {} добавлено в «{}», alias «{}»",
                     peer_id,

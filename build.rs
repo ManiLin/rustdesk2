@@ -87,7 +87,7 @@ fn gen_app_build_defaults() {
     let preset_address_book_name = std::env::var("RUSTDESK_PRESET_ADDRESS_BOOK_NAME")
         .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let ad_domain =
-        std::env::var("RUSTDESK_AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.ru".to_string());
+        std::env::var("RUSTDESK_AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let assign_api_token = if desktop_ui_flavor.eq_ignore_ascii_case("cashdesk") {
         String::new()
     } else {

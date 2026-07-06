@@ -40,22 +40,28 @@ extern "system" {
 
 fn target_ad_domain() -> &'static str {
     if DEFAULT_AD_DOMAIN_FROM_BUILD.is_empty() {
-        "corp.tatnefturs.ru"
+        "corp.tatnefturs.tatar"
     } else {
         DEFAULT_AD_DOMAIN_FROM_BUILD
     }
 }
 
 fn wide_null(s: &str) -> Vec<u16> {
-    OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 fn get_computer_dns_domain() -> String {
     let mut buf = vec![0u16; 256];
     let mut size = buf.len() as u32;
     unsafe {
-        if GetComputerNameExW(ComputerNameFormat::ComputerNameDnsDomain, buf.as_mut_ptr(), &mut size)
-            == FALSE
+        if GetComputerNameExW(
+            ComputerNameFormat::ComputerNameDnsDomain,
+            buf.as_mut_ptr(),
+            &mut size,
+        ) == FALSE
         {
             return String::new();
         }
@@ -127,13 +133,21 @@ fn build_sam_name(username: &str, dns_domain: &str) -> String {
     }
 }
 
-/// True when this PC is joined to the configured AD domain (e.g. corp.tatnefturs.ru).
+/// True when this PC is joined to the configured AD domain (e.g. corp.tatnefturs.tatar).
 pub fn is_target_ad_domain() -> bool {
     if !crate::app_build_config::ad_address_book_features_enabled() {
         return false;
     }
     let dns = get_computer_dns_domain();
-    !dns.is_empty() && domains_equal(&dns, target_ad_domain())
+    let target = target_ad_domain();
+    let matched = !dns.is_empty() && domains_equal(&dns, target);
+    log::info!(
+        "ad_ab_assign: is_target_ad_domain: dns_domain=\"{}\", target=\"{}\", matched={}",
+        dns,
+        target,
+        matched
+    );
+    matched
 }
 
 /// Display name (FIO) of the user at the active console session, resolved via AD.

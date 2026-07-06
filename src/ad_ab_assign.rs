@@ -403,10 +403,6 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             log::info!("ad_ab_assign: skip, this PC is not in target AD domain");
             return Ok(());
         }
-        if !crate::platform::is_installed() {
-            log::info!("ad_ab_assign: skip, RustDesk service is not installed");
-            return Ok(());
-        }
 
         let ab_name = address_book_name();
         if ab_name.is_empty() {

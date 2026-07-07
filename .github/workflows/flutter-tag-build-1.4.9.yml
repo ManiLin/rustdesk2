@@ -1,0 +1,45 @@
+name: Flutter Tag Build 1.4.9
+
+# Отдельный workflow для релиз-сборки 1.4.9 поверх ветки upgrade-1.4.9.
+# Запускается:
+#   1. Вручную (workflow_dispatch) — на выбранной ветке (по умолчанию upgrade-1.4.9).
+#   2. Автоматически при пуше тега 1.4.9* (включая 1.4.9, 1.4.9-1, v1.4.9 и т.п.).
+#
+# Собираются два варианта:
+#   • обычный RustDesk (TnursRemoteDesk) с AD address book / API token
+#   • cashdesk-сборка (incoming-only, без AD features)
+
+on:
+  workflow_dispatch:
+    inputs:
+      inventory-report-url:
+        description: "URL отчётов (POST …/api/v1/report). Пусто — не зашивать"
+        required: false
+        default: ""
+        type: string
+  push:
+    tags:
+      - '1.4.9'
+      - '1.4.9-*'
+      - 'v1.4.9'
+      - 'v1.4.9-*'
+
+jobs:
+  run-flutter-tag-1_4_9-build:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: "1.4.9"
+      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}
+
+  run-flutter-tag-1_4_9-cashdesk-build:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: "1.4.9-cashdesk"
+      artifact-prefix: "cashdesk-"
+      conn-type: "incoming"
+      desktop-ui-flavor: "cashdesk"
+      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}

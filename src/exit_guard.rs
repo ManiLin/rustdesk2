@@ -1,10 +1,10 @@
 //! Cashdesk: require permanent password to stop service / exit while remote sessions are active.
 
-use hbb_common::config::{Config, DEFAULT_DESKTOP_UI_FLAVOR_FROM_BUILD};
+use hbb_common::config::Config;
 
 #[inline]
 pub fn is_cashdesk_build() -> bool {
-    DEFAULT_DESKTOP_UI_FLAVOR_FROM_BUILD == "cashdesk"
+    crate::app_build_config::is_cashdesk_ui_build()
 }
 
 #[inline]

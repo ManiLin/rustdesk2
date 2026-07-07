@@ -4726,6 +4726,9 @@ fn utf16_to_string(v: &[u16]) -> String {
 /// Password dialog for cashdesk shutdown guard (tray / stop service).
 #[cfg(windows)]
 pub fn prompt_exit_password() -> Option<String> {
+    use std::ptr::null_mut;
+    use winapi::shared::minwindef::{BOOL, DWORD, ULONG};
+    use winapi::shared::winerror::ERROR_SUCCESS;
     use winapi::um::wincred::*;
 
     let caption = utf16z(&format!(
@@ -4736,31 +4739,29 @@ pub fn prompt_exit_password() -> Option<String> {
     let message = utf16z(&crate::client::translate(
         "Enter password to stop service while remote sessions are active".to_owned(),
     ));
+    let target = utf16z("TnursRemoteDeskExit");
     let mut ui = CREDUI_INFOW {
         cbSize: std::mem::size_of::<CREDUI_INFOW>() as DWORD,
         hwndParent: null_mut(),
         pszMessageText: message.as_ptr(),
         pszCaptionText: caption.as_ptr(),
         hbmBanner: null_mut(),
-        dwFlags: CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_DO_NOT_PERSIST,
-        pszAppName: null_mut(),
-        pszTargetName: null_mut(),
     };
     let mut username = [0u16; 128];
     let mut password = [0u16; 128];
-    let mut auth_package = 0u32;
-    let mut save = 0i32;
+    let mut save: BOOL = 0;
     let err = unsafe {
         CredUIPromptForCredentialsW(
-            &mut ui,
+            &ui,
+            target.as_ptr(),
             null_mut(),
+            0,
             username.as_mut_ptr(),
-            username.len() as DWORD,
+            username.len() as ULONG,
             password.as_mut_ptr(),
-            password.len() as DWORD,
-            &mut auth_package,
+            password.len() as ULONG,
             &mut save,
-            CREDUIWIN_GENERIC,
+            CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_DO_NOT_PERSIST,
         )
     };
     if err != ERROR_SUCCESS {

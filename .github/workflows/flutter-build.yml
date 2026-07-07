@@ -86,13 +86,6 @@ jobs:
 
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
-    with:
-      upload-artifact: ${{ inputs.upload-artifact }}
-      artifact-prefix: ${{ inputs.artifact-prefix }}
-      target: windows-2022
-      configuration: Release
-      platform: x64
-      target_version: Windows10
     strategy:
       fail-fast: false
       matrix:
@@ -107,6 +100,7 @@ jobs:
             }
     with:
       upload-artifact: ${{ inputs.upload-artifact }}
+      artifact-prefix: ${{ inputs.artifact-prefix }}
       target: ${{ matrix.job.target }}
       configuration: Release
       platform: ${{ matrix.job.platform }}

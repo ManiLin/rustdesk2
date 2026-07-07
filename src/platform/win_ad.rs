@@ -1,6 +1,7 @@
 //! Active Directory helpers for corp.tatnefturs.ru address book auto-registration.
 
 use crate::app_build_config::DEFAULT_AD_DOMAIN_FROM_BUILD;
+use hbb_common::log;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use winapi::shared::minwindef::FALSE;

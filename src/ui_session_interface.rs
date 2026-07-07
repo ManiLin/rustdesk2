@@ -38,6 +38,7 @@ use std::{
     },
     time::SystemTime,
 };
+#[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
 use uuid::Uuid;
 
 use crate::client::io_loop::Remote;

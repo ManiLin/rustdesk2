@@ -4726,9 +4726,6 @@ fn utf16_to_string(v: &[u16]) -> String {
 /// Password dialog for cashdesk shutdown guard (tray / stop service).
 #[cfg(windows)]
 pub fn prompt_exit_password() -> Option<String> {
-    use std::ptr::null_mut;
-    use winapi::shared::minwindef::{BOOL, DWORD, ULONG};
-    use winapi::shared::winerror::ERROR_SUCCESS;
     use winapi::um::wincred::*;
 
     let caption = utf16z(&format!(
@@ -4752,7 +4749,7 @@ pub fn prompt_exit_password() -> Option<String> {
     let mut save: BOOL = 0;
     let err = unsafe {
         CredUIPromptForCredentialsW(
-            &ui,
+            &mut ui,
             target.as_ptr(),
             null_mut(),
             0,

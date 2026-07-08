@@ -1776,9 +1776,14 @@ jobs:
         if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true'
         run: |
           shopt -s nullglob
+          # makepkg runs inside the arch-makepkg-action container as root, so the
+          # produced .pkg.tar.zst is owned by root and the runner user cannot
+          # move/overwrite it. Fix ownership first, then rename with -f so a
+          # stale file from a previous attempt is replaced.
+          sudo chown -R "$(id -u):$(id -g)" res || true
           for name in res/rustdesk-${{ env.VERSION }}*.zst; do
               suffix="${name#res/rustdesk-${{ env.VERSION }}}"
-              mv "$name" "res/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}${suffix}"
+              mv -f "$name" "res/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}${suffix}"
           done
 
       - name: Publish archlinux package

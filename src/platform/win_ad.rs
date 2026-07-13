@@ -142,12 +142,24 @@ pub fn is_target_ad_domain() -> bool {
     let dns = get_computer_dns_domain();
     let target = target_ad_domain();
     let matched = !dns.is_empty() && domains_equal(&dns, target);
-    log::info!(
-        "ad_ab_assign: is_target_ad_domain: dns_domain=\"{}\", target=\"{}\", matched={}",
-        dns,
-        target,
-        matched
-    );
+    // Логируем только при совпадении (однократное подтверждение, что ПК в домене),
+    // либо однократно при несовпадении — иначе частый retry-цикл ad_ab_assign
+    // засоряет лог на не-доменных ПК.
+    static LOGGED_NO_MATCH: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    if matched {
+        log::info!(
+            "ad_ab_assign: is_target_ad_domain: dns_domain=\"{}\", target=\"{}\", matched=true",
+            dns,
+            target
+        );
+    } else if !LOGGED_NO_MATCH.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        log::info!(
+            "ad_ab_assign: is_target_ad_domain: dns_domain=\"{}\", target=\"{}\", matched=false",
+            dns,
+            target
+        );
+    }
     matched
 }
 

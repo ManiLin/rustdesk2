@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-const FIRST_DELAY: Duration = Duration::from_secs(20);
+const FIRST_DELAY: Duration = Duration::from_secs(3);
+const RETRY_DELAY: Duration = Duration::from_secs(15);
 const INTERVAL: Duration = Duration::from_secs(300);
 const STATUS_KEY: &str = "ad_ab_assign_alias";
 const COLLECTION_CACHE_KEY: &str = "ad_ab_collection_cache";
@@ -20,6 +21,10 @@ const COLLECTION_CACHE_KEY: &str = "ad_ab_collection_cache";
 static LOGGED_DISABLED: AtomicBool = AtomicBool::new(false);
 static LOGGED_NO_TOKEN: AtomicBool = AtomicBool::new(false);
 static LOGGED_NO_COLLECTION: AtomicBool = AtomicBool::new(false);
+static LOGGED_NOT_IN_DOMAIN: AtomicBool = AtomicBool::new(false);
+static LOGGED_NOT_INSTALLED: AtomicBool = AtomicBool::new(false);
+static LOGGED_NO_DISPLAY_NAME: AtomicBool = AtomicBool::new(false);
+static LOGGED_API_NOT_READY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug)]
 struct CollectionRef {
@@ -70,7 +75,12 @@ async fn run_loop() {
             continue;
         }
         allow_err!(try_auto_assign_address_book().await);
-        tokio::time::sleep(INTERVAL).await;
+        // Пока устройство ни разу не появилось в адресной книге — повторяем часто,
+        // чтобы оно добавилось сразу после установки (сеть/API могут быть ещё не
+        // готовы на старте сервиса). После первой успешной привязки переходим на
+        // редкий интервал: он нужен только для отслеживания переименования учёток.
+        let assigned = !config::Status::get(STATUS_KEY).is_empty();
+        tokio::time::sleep(if assigned { INTERVAL } else { RETRY_DELAY }).await;
     }
 }
 
@@ -400,11 +410,15 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
     #[cfg(windows)]
     {
         if !crate::platform::is_target_ad_domain() {
-            log::info!("ad_ab_assign: skip, this PC is not in target AD domain");
+            if !LOGGED_NOT_IN_DOMAIN.swap(true, Ordering::SeqCst) {
+                log::info!("ad_ab_assign: skip, this PC is not in target AD domain");
+            }
             return Ok(());
         }
         if !crate::platform::is_installed() {
-            log::info!("ad_ab_assign: skip, RustDesk service is not installed");
+            if !LOGGED_NOT_INSTALLED.swap(true, Ordering::SeqCst) {
+                log::info!("ad_ab_assign: skip, RustDesk service is not installed");
+            }
             return Ok(());
         }
 
@@ -417,7 +431,9 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
         let alias = match crate::platform::get_active_user_display_name() {
             Some(a) if !a.is_empty() => a,
             _ => {
-                log::info!("ad_ab_assign: skip, active AD displayName is empty");
+                if !LOGGED_NO_DISPLAY_NAME.swap(true, Ordering::SeqCst) {
+                    log::info!("ad_ab_assign: skip, active AD displayName is empty");
+                }
                 return Ok(());
             }
         };
@@ -436,7 +452,9 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             api = app_build_config::DEFAULT_API_SERVER_FROM_BUILD.to_owned();
         }
         if api.is_empty() || crate::is_public(&api) {
-            log::warn!("ad_ab_assign: api-server не настроен, value={}", api);
+            if !LOGGED_API_NOT_READY.swap(true, Ordering::SeqCst) {
+                log::warn!("ad_ab_assign: api-server не настроен, value={}", api);
+            }
             return Ok(());
         }
         log::info!(

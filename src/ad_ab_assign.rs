@@ -34,6 +34,7 @@ struct CollectionRef {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start() {
+    log::info!("DBG748 H1: ad_ab_assign::start() entered, pid={}", std::process::id());
     if !app_build_config::ad_address_book_features_enabled() {
         if !LOGGED_DISABLED.swap(true, Ordering::SeqCst) {
             log::info!(
@@ -42,12 +43,14 @@ pub fn start() {
                 config::is_incoming_only()
             );
         }
+        log::info!("DBG748 H1: start() returning: features disabled");
         return;
     }
     if DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.is_empty() {
         if !LOGGED_NO_TOKEN.swap(true, Ordering::SeqCst) {
             log::info!("ad_ab_assign: disabled, build token is empty");
         }
+        log::info!("DBG748 H1: start() returning: token empty");
         return;
     }
     log::info!(
@@ -56,31 +59,59 @@ pub fn start() {
         DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD,
         app_build_config::DEFAULT_AD_DOMAIN_FROM_BUILD
     );
+    log::info!("DBG748 H5: spawning ad_ab_assign worker thread");
     std::thread::spawn(|| {
-        allow_err!(tokio::runtime::Builder::new_current_thread()
+        log::info!("DBG748 H5: worker thread entered, building tokio runtime");
+        let rt_res = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .map(|rt| rt.block_on(run_loop())));
+            .build();
+        match rt_res {
+            Ok(rt) => {
+                log::info!("DBG748 H5: tokio runtime built, entering run_loop");
+                allow_err!(rt.block_on(run_loop()));
+            }
+            Err(e) => log::error!("DBG748 H5: tokio runtime build FAILED: {}", e),
+        }
     });
+    log::info!("DBG748 H1: start() spawned worker, returning");
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn start() {}
 
 async fn run_loop() {
+    log::info!(
+        "DBG748 H4: run_loop started, FIRST_DELAY={:?}, RETRY_DELAY={:?}, INTERVAL={:?}",
+        FIRST_DELAY,
+        RETRY_DELAY,
+        INTERVAL
+    );
+    let mut iteration: u64 = 0;
     tokio::time::sleep(FIRST_DELAY).await;
     loop {
-        if config::option2bool("stop-service", &Config::get_option("stop-service")) {
+        iteration += 1;
+        let stop_service = config::option2bool("stop-service", &Config::get_option("stop-service"));
+        let status_before = config::Status::get(STATUS_KEY);
+        log::info!(
+            "DBG748 H4: run_loop iter={}, stop_service={}, STATUS_KEY=\"{}\"",
+            iteration,
+            stop_service,
+            status_before
+        );
+        if stop_service {
             tokio::time::sleep(Duration::from_secs(30)).await;
             continue;
         }
         allow_err!(try_auto_assign_address_book().await);
-        // Пока устройство ни разу не появилось в адресной книге — повторяем часто,
-        // чтобы оно добавилось сразу после установки (сеть/API могут быть ещё не
-        // готовы на старте сервиса). После первой успешной привязки переходим на
-        // редкий интервал: он нужен только для отслеживания переименования учёток.
         let assigned = !config::Status::get(STATUS_KEY).is_empty();
-        tokio::time::sleep(if assigned { INTERVAL } else { RETRY_DELAY }).await;
+        let delay = if assigned { INTERVAL } else { RETRY_DELAY };
+        log::info!(
+            "DBG748 H4: run_loop iter={} done, assigned={}, sleeping {:?}",
+            iteration,
+            assigned,
+            delay
+        );
+        tokio::time::sleep(delay).await;
     }
 }
 
@@ -409,13 +440,24 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
 
     #[cfg(windows)]
     {
-        if !crate::platform::is_target_ad_domain() {
+        let in_domain = crate::platform::is_target_ad_domain();
+        let installed = crate::platform::is_installed();
+        let active_user = crate::platform::get_active_username();
+        let display_name = crate::platform::get_active_user_display_name();
+        log::info!(
+            "DBG748 H2/H3: checks: in_domain={}, installed={}, active_user=\"{}\", display_name={:?}",
+            in_domain,
+            installed,
+            active_user,
+            display_name
+        );
+        if !in_domain {
             if !LOGGED_NOT_IN_DOMAIN.swap(true, Ordering::SeqCst) {
                 log::info!("ad_ab_assign: skip, this PC is not in target AD domain");
             }
             return Ok(());
         }
-        if !crate::platform::is_installed() {
+        if !installed {
             if !LOGGED_NOT_INSTALLED.swap(true, Ordering::SeqCst) {
                 log::info!("ad_ab_assign: skip, RustDesk service is not installed");
             }
@@ -428,11 +470,14 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             return Ok(());
         }
 
-        let alias = match crate::platform::get_active_user_display_name() {
+        let alias = match display_name {
             Some(a) if !a.is_empty() => a,
             _ => {
                 if !LOGGED_NO_DISPLAY_NAME.swap(true, Ordering::SeqCst) {
-                    log::info!("ad_ab_assign: skip, active AD displayName is empty");
+                    log::info!(
+                        "ad_ab_assign: skip, active AD displayName is empty (active_user=\"{}\")",
+                        active_user
+                    );
                 }
                 return Ok(());
             }
@@ -440,6 +485,13 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
 
         let status_value = format!("{}:{}", ab_name, alias);
         let last = config::Status::get(STATUS_KEY);
+        log::info!(
+            "DBG748 H4: alias=\"{}\", status_value=\"{}\", last_status=\"{}\", already_synced={}",
+            alias,
+            status_value,
+            last,
+            last == status_value
+        );
         if last == status_value {
             log::info!(
                 "ad_ab_assign: local status already synced as {}, revalidating server entry",
@@ -451,7 +503,14 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
         if api.is_empty() {
             api = app_build_config::DEFAULT_API_SERVER_FROM_BUILD.to_owned();
         }
-        if api.is_empty() || crate::is_public(&api) {
+        let is_public_api = api.is_empty() || crate::is_public(&api);
+        log::info!(
+            "DBG748 H3: api=\"{}\", is_public={}, peer_id={}",
+            api,
+            is_public_api,
+            Config::get_id()
+        );
+        if is_public_api {
             if !LOGGED_API_NOT_READY.swap(true, Ordering::SeqCst) {
                 log::warn!("ad_ab_assign: api-server не настроен, value={}", api);
             }

@@ -68,7 +68,7 @@ pub fn start() {
         match rt_res {
             Ok(rt) => {
                 log::info!("DBG748 H5: tokio runtime built, entering run_loop");
-                allow_err!(rt.block_on(run_loop()));
+                rt.block_on(run_loop());
             }
             Err(e) => log::error!("DBG748 H5: tokio runtime build FAILED: {}", e),
         }

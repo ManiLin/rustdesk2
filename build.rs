@@ -80,6 +80,7 @@ fn gen_app_build_defaults() {
     println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_ADDRESS_BOOK_NAME");
     println!("cargo:rerun-if-env-changed=RUSTDESK_AD_DOMAIN");
     println!("cargo:rerun-if-env-changed=RUSTDESK_ASSIGN_API_TOKEN");
+    println!("cargo:rerun-if-env-changed=RUSTDESK_APP_NAME");
 
     let desktop_ui_flavor = std::env::var("RUSTDESK_DESKTOP_UI_FLAVOR").unwrap_or_default();
     let api_server = std::env::var("RUSTDESK_API_SERVER")
@@ -151,13 +152,21 @@ fn base64_encode(data: &[u8]) -> String {
 fn build_manifest() {
     use std::io::Write;
     if std::env::var("PROFILE").unwrap() == "release" {
+        let app_name =
+            std::env::var("RUSTDESK_APP_NAME").unwrap_or_else(|_| "TnursRemoteDesk".to_string());
+        let exe_base = app_name.to_ascii_lowercase();
         let mut res = winres::WindowsResource::new();
         res.set_icon("res/icon.ico")
             .set_language(winapi::um::winnt::MAKELANGID(
                 winapi::um::winnt::LANG_ENGLISH,
                 winapi::um::winnt::SUBLANG_ENGLISH_US,
             ))
-            .set_manifest_file("res/manifest.xml");
+            .set_manifest_file("res/manifest.xml")
+            // Task Manager shows FileDescription; ProductName is used in Details.
+            .set("ProductName", &app_name)
+            .set("FileDescription", &app_name)
+            .set("InternalName", &exe_base)
+            .set("OriginalFilename", &format!("{}.exe", exe_base));
         match res.compile() {
             Err(e) => {
                 write!(std::io::stderr(), "{}", e).unwrap();

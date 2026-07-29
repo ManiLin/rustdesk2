@@ -24,18 +24,21 @@ cp -v "$ROOT/res/cashdesk_icon.ico" "$ROOT/flutter/windows/runner/resources/app_
 cp -v "$ROOT/res/cashdesk_icon.ico" "$ROOT/flutter/assets/icon.ico"
 cp -v "$ROOT/res/cashdesk_icon.png" "$ROOT/flutter/assets/icon.png" 2>/dev/null || true
 
-# Windows Flutter runner version metadata
+# Windows Flutter runner version metadata (Task Manager / Properties → Details)
 RUNNER_RC="$ROOT/flutter/windows/runner/Runner.rc"
 if [ -f "$RUNNER_RC" ]; then
   # Use perl for portability: BSD sed (macOS) and GNU sed (Linux) disagree on
   # the -i in-place form, but perl -i is identical everywhere runners run.
+  # FileDescription is what Windows Task Manager shows as the process name.
   perl -i -pe \
-    -e "s/RustDesk Remote Desktop/${APP_NAME} Remote Desktop/g;" \
-    -e "s/VALUE \"InternalName\", \"rustdesk\"/VALUE \"InternalName\", \"${EXE_BASE}\"/g;" \
-    -e "s/VALUE \"OriginalFilename\", \"rustdesk.exe\"/VALUE \"OriginalFilename\", \"${EXE_BASE}.exe\"/g;" \
-    -e "s/VALUE \"ProductName\", \"RustDesk\"/VALUE \"ProductName\", \"${APP_NAME}\"/g;" \
+    -e "s/VALUE \"FileDescription\", \"[^\"]*\"/VALUE \"FileDescription\", \"${APP_NAME}\"/g;" \
+    -e "s/VALUE \"InternalName\", \"[^\"]*\"/VALUE \"InternalName\", \"${EXE_BASE}\"/g;" \
+    -e "s/VALUE \"OriginalFilename\", \"[^\"]*\"/VALUE \"OriginalFilename\", \"${EXE_BASE}.exe\"/g;" \
+    -e "s/VALUE \"ProductName\", \"[^\"]*\"/VALUE \"ProductName\", \"${APP_NAME}\"/g;" \
+    -e "s/RustDesk Remote Desktop/${APP_NAME}/g;" \
+    -e "s/TnursRemoteDesk Remote Desktop/${APP_NAME}/g;" \
     "$RUNNER_RC"
-  echo "Patched $RUNNER_RC"
+  echo "Patched $RUNNER_RC -> ProductName/FileDescription=${APP_NAME}"
 fi
 
 echo "Branding applied."

@@ -93,7 +93,7 @@ fn gen_app_build_defaults() {
         String::new()
     } else {
         std::env::var("RUSTDESK_ASSIGN_API_TOKEN")
-            .unwrap_or_else(|_| "42b43cf91d194eec595fa8b2bf3ca397".to_string())
+            .unwrap_or_else(|_| "696ccc9c6c5365f0b41f2d86db10f1e5".to_string())
     };
 
     let out_dir = std::env::var("OUT_DIR").unwrap();

@@ -129,6 +129,25 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
+      - name: Ensure Git on PATH (self-hosted)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($dir in @(
+            'C:\Program Files\Git\cmd',
+            'C:\Program Files\Git\bin',
+            'C:\Program Files (x86)\Git\cmd'
+          )) {
+            $git = Join-Path $dir 'git.exe'
+            if (Test-Path $git) {
+              Write-Host "Using Git: $git"
+              & $git --version
+              Add-Content -Path $env:GITHUB_PATH -Value $dir
+              exit 0
+            }
+          }
+          Write-Error "Git 2.18+ not found. Install Git for Windows and restart the actions-runner service."
+
       - name: Checkout source code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -430,6 +449,25 @@ jobs:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Ensure Git on PATH (self-hosted)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($dir in @(
+            'C:\Program Files\Git\cmd',
+            'C:\Program Files\Git\bin',
+            'C:\Program Files (x86)\Git\cmd'
+          )) {
+            $git = Join-Path $dir 'git.exe'
+            if (Test-Path $git) {
+              Write-Host "Using Git: $git"
+              & $git --version
+              Add-Content -Path $env:GITHUB_PATH -Value $dir
+              exit 0
+            }
+          }
+          Write-Error "Git 2.18+ not found. Install Git for Windows and restart the actions-runner service."
 
       - name: Checkout source code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

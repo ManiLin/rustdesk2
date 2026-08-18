@@ -42,7 +42,7 @@ jobs:
       build_output_dir: RustDeskTempTopMostWindow/WindowInjection/${{ inputs.platform }}/${{ inputs.configuration }}
     steps:
       - name: Ensure Git on PATH (self-hosted)
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($dir in @(

@@ -1,0 +1,43 @@
+name: Flutter Tag Build 1.4.9 (self-hosted)
+
+# Сборка 1.4.9 только на self-hosted runners:
+#   • github-runner-srv-n1-01  — [self-hosted, Linux, ubuntu-latest]
+#   • windows-build-runner     — [self-hosted, Windows, windows-2022]
+#
+# Не тратит минуты GitHub-hosted. Собирает Windows x64 (Flutter + Sciter i686).
+# Android / macOS / Linux / ARM Windows отключены.
+
+on:
+  workflow_dispatch:
+    inputs:
+      inventory-report-url:
+        description: "URL отчётов (POST …/api/v1/report). Пусто — не зашивать"
+        required: false
+        default: ""
+        type: string
+  push:
+    tags:
+      - '1.4.9-sh'
+      - '1.4.9-sh-*'
+      - 'v1.4.9-sh'
+      - 'v1.4.9-sh-*'
+
+jobs:
+  run-flutter-tag-1_4_9-build-self-hosted:
+    uses: ./.github/workflows/flutter-build-self-hosted.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: "1.4.9"
+      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}
+
+  run-flutter-tag-1_4_9-cashdesk-build-self-hosted:
+    uses: ./.github/workflows/flutter-build-self-hosted.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: "1.4.9-cashdesk"
+      artifact-prefix: "cashdesk-"
+      conn-type: "incoming"
+      desktop-ui-flavor: "cashdesk"
+      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}

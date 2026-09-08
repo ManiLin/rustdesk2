@@ -339,18 +339,24 @@ def generate_control_file(version):
     control_file_path = "../res/DEBIAN/control"
     system2('/bin/rm -rf %s' % control_file_path)
 
-    content = """Package: rustdesk
+    pkg_name = _exe_base if _exe_base else 'rustdesk'
+    desc = f'{_app_name} remote control software.' if _app_name else 'A remote control software.'
+
+    content = """Package: %s
 Section: net
 Priority: optional
 Version: %s
 Architecture: %s
-Maintainer: rustdesk <info@rustdesk.com>
+Maintainer: %s <info@rustdesk.com>
 Homepage: https://rustdesk.com
+Provides: rustdesk (= %s)
+Conflicts: rustdesk (<< %s)
+Replaces: rustdesk (<< %s)
 Depends: libgtk-3-0t64 | libgtk-3-0, libxcb-randr0, libxdo3 | libxdo4, libxfixes3, libxcb-shape0, libxcb-xfixes0, libasound2t64 | libasound2, libsystemd0, curl, libva2, libva-drm2, libva-x11-2, libgstreamer-plugins-base1.0-0, libpam0g, gstreamer1.0-pipewire%s
 Recommends: libayatana-appindicator3-1
-Description: A remote control software.
+Description: %s
 
-""" % (version, get_deb_arch(), get_deb_extra_depends())
+""" % (pkg_name, version, get_deb_arch(), _app_name or 'rustdesk', version, version, version, get_deb_extra_depends(), desc)
     file = open(control_file_path, "w")
     file.write(content)
     file.close()
@@ -407,7 +413,8 @@ def build_flutter_deb(version, features):
 
     system2('/bin/rm -rf tmpdeb/')
     system2('/bin/rm -rf ../res/DEBIAN/control')
-    os.rename('rustdesk.deb', '../rustdesk-%s.deb' % version)
+    deb_output_name = f'{_exe_base}-{version}.deb' if _exe_base else f'rustdesk-{version}.deb'
+    os.rename('rustdesk.deb', f'../{deb_output_name}')
     os.chdir("..")
 
 
@@ -444,7 +451,8 @@ def build_deb_from_folder(version, binary_folder):
 
     system2('/bin/rm -rf tmpdeb/')
     system2('/bin/rm -rf ../res/DEBIAN/control')
-    os.rename('rustdesk.deb', '../rustdesk-%s.deb' % version)
+    deb_output_name = f'{_exe_base}-{version}.deb' if _exe_base else f'rustdesk-{version}.deb'
+    os.rename('rustdesk.deb', f'../{deb_output_name}')
     os.chdir("..")
 
 

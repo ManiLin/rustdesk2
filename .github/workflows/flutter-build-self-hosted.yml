@@ -129,24 +129,8 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Ensure Git on PATH (self-hosted)
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          foreach ($dir in @(
-            'C:\Program Files\Git\cmd',
-            'C:\Program Files\Git\bin',
-            'C:\Program Files (x86)\Git\cmd'
-          )) {
-            $git = Join-Path $dir 'git.exe'
-            if (Test-Path $git) {
-              Write-Host "Using Git: $git"
-              & $git --version
-              Add-Content -Path $env:GITHUB_PATH -Value $dir
-              exit 0
-            }
-          }
-          Write-Error "Git 2.18+ not found. Install Git for Windows and restart the actions-runner service."
+      - name: Setup self-hosted Windows tools
+        uses: ./.github/actions/self-hosted-windows-setup
 
       - name: Checkout source code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -450,24 +434,8 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Ensure Git on PATH (self-hosted)
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          foreach ($dir in @(
-            'C:\Program Files\Git\cmd',
-            'C:\Program Files\Git\bin',
-            'C:\Program Files (x86)\Git\cmd'
-          )) {
-            $git = Join-Path $dir 'git.exe'
-            if (Test-Path $git) {
-              Write-Host "Using Git: $git"
-              & $git --version
-              Add-Content -Path $env:GITHUB_PATH -Value $dir
-              exit 0
-            }
-          }
-          Write-Error "Git 2.18+ not found. Install Git for Windows and restart the actions-runner service."
+      - name: Setup self-hosted Windows tools
+        uses: ./.github/actions/self-hosted-windows-setup
 
       - name: Checkout source code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -1475,30 +1443,19 @@ jobs:
             signed-apk/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
   build-rustdesk-linux:
-    if: false
     needs: [generate-bridge]
     name: build rustdesk linux ${{ matrix.job.target }}
-    runs-on: ${{ matrix.job.on }}
+    runs-on: [self-hosted, Linux, ubuntu-latest]
     strategy:
       fail-fast: false
       matrix:
-        # use a high level qemu-user-static
         job:
           - {
               arch: x86_64,
               target: x86_64-unknown-linux-gnu,
               distro: ubuntu18.04,
-              on: ubuntu-22.04,
               deb_arch: amd64,
               vcpkg-triplet: x64-linux,
-            }
-          - {
-              arch: aarch64,
-              target: aarch64-unknown-linux-gnu,
-              distro: ubuntu18.04,
-              on: ubuntu-22.04-arm,
-              deb_arch: arm64,
-              vcpkg-triplet: arm64-linux,
             }
     steps:
       - name: Export GitHub Actions cache environment variables
@@ -1510,13 +1467,10 @@ jobs:
 
       - name: Maximize build space
         run: |
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-          sudo apt-get update -y
-          sudo apt-get install -y nasm
-          if [[ "${{ matrix.job.arch }}" == "x86_64" ]]; then
-            sudo apt-get install -y qemu-user-static
+          if [[ "$(id -u)" -eq 0 ]]; then
+            apt-get update -y && apt-get install -y nasm qemu-user-static
+          elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo apt-get update -y && sudo apt-get install -y nasm qemu-user-static
           fi
 
       - name: Checkout source code
@@ -1575,7 +1529,11 @@ jobs:
       - name: Install vcpkg dependencies
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
         run: |
-          sudo apt install -y libva-dev && apt show libva-dev
+          if [[ "$(id -u)" -eq 0 ]]; then
+            apt-get install -y libva-dev
+          elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo apt-get install -y libva-dev
+          fi
           if ! $VCPKG_ROOT/vcpkg \
             install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
@@ -1739,8 +1697,10 @@ jobs:
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             python3 ./build.py --flutter --skip-cargo
-            for name in rustdesk*??.deb; do
-              mv "$name" "${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}.deb"
+            for name in *.deb; do
+              if [[ -f "$name" && "$name" != "${{ env.FILE_NAME_PREFIX }}"* ]]; then
+                mv "$name" "${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}.deb"
+              fi
             done
 
             # rpm package
@@ -1815,7 +1775,11 @@ jobs:
           # produced .pkg.tar.zst is owned by root and the runner user cannot
           # move/overwrite it. Fix ownership first, then rename with -f so a
           # stale file from a previous attempt is replaced.
-          sudo chown -R "$(id -u):$(id -g)" res || true
+          if [[ "$(id -u)" -eq 0 ]]; then
+            chown -R "$(id -u):$(id -g)" res || true
+          elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo chown -R "$(id -u):$(id -g)" res || true
+          fi
           for name in res/rustdesk-${{ env.VERSION }}*.zst; do
               suffix="${name#res/rustdesk-${{ env.VERSION }}}"
               mv -f "$name" "res/${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}${suffix}"

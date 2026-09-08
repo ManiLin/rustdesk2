@@ -41,27 +41,8 @@ jobs:
     env:
       build_output_dir: RustDeskTempTopMostWindow/WindowInjection/${{ inputs.platform }}/${{ inputs.configuration }}
     steps:
-      - name: Ensure Git on PATH (self-hosted)
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          foreach ($dir in @(
-            'C:\Program Files\Git\cmd',
-            'C:\Program Files\Git\bin',
-            'C:\Program Files (x86)\Git\cmd'
-          )) {
-            $git = Join-Path $dir 'git.exe'
-            if (Test-Path $git) {
-              Write-Host "Using Git: $git"
-              & $git --version
-              Add-Content -Path $env:GITHUB_PATH -Value $dir
-              exit 0
-            }
-          }
-          Write-Error "Git 2.18+ not found. Install Git for Windows and restart the actions-runner service."
-
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+      - name: Setup self-hosted Windows tools
+        uses: ./.github/actions/self-hosted-windows-setup
 
       - name: Download the source code
         run: |

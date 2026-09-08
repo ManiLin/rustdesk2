@@ -41,4 +41,24 @@ if [ -f "$RUNNER_RC" ]; then
   echo "Patched $RUNNER_RC -> ProductName/FileDescription=${APP_NAME}"
 fi
 
+# Linux desktop file branding
+DESKTOP_FILE="$ROOT/res/rustdesk.desktop"
+if [ -f "$DESKTOP_FILE" ]; then
+  perl -i -pe \
+    -e "s/^Name=.*$/Name=${APP_NAME}/g;" \
+    -e "s/^GenericName=.*$/GenericName=${APP_NAME} Remote Desktop/g;" \
+    -e "s/^Comment=.*$/Comment=${APP_NAME} Remote Desktop/g;" \
+    "$DESKTOP_FILE"
+  echo "Patched $DESKTOP_FILE -> Name=${APP_NAME}"
+fi
+
+# Linux systemd service branding
+SERVICE_FILE="$ROOT/res/rustdesk.service"
+if [ -f "$SERVICE_FILE" ]; then
+  perl -i -pe \
+    -e "s/^Description=.*$/Description=${APP_NAME}/g;" \
+    "$SERVICE_FILE"
+  echo "Patched $SERVICE_FILE -> Description=${APP_NAME}"
+fi
+
 echo "Branding applied."

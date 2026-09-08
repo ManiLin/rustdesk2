@@ -4,8 +4,8 @@ name: Flutter Tag Build 1.4.9 (self-hosted)
 #   • github-runner-srv-n1-01  — [self-hosted, Linux, ubuntu-latest]
 #   • windows-build-runner     — [self-hosted, Windows, windows-2022]
 #
-# Не тратит минуты GitHub-hosted. Собирает Windows x64 (Flutter + Sciter i686).
-# Android / macOS / Linux / ARM Windows отключены.
+# Не тратит минуты GitHub-hosted. Собирает Windows x64 (Flutter + Sciter i686) и Linux x64 (.deb, .rpm, .pkg.tar.zst).
+# Android / macOS / ARM Windows отключены.
 
 on:
   workflow_dispatch:

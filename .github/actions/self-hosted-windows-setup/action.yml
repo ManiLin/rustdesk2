@@ -1,0 +1,52 @@
+name: Self-hosted Windows setup
+description: Add Git, Git Bash, and MSBuild to PATH on self-hosted Windows runners
+
+runs:
+  using: composite
+  steps:
+    - name: Configure PATH for Git and MSBuild
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        $gitRoots = @(
+          "${env:ProgramFiles}\Git",
+          "${env:ProgramFiles(x86)}\Git"
+        )
+        $gitFound = $false
+        foreach ($root in $gitRoots) {
+          if (-not (Test-Path $root)) { continue }
+          foreach ($sub in @('cmd', 'bin', 'usr\bin')) {
+            $dir = Join-Path $root $sub
+            if (Test-Path $dir) {
+              Write-Host "Adding Git path: $dir"
+              Add-Content -Path $env:GITHUB_PATH -Value $dir
+            }
+          }
+          $gitExe = Join-Path $root 'cmd\git.exe'
+          if (Test-Path $gitExe) {
+            & $gitExe --version
+            $gitFound = $true
+          }
+        }
+        if (-not $gitFound) {
+          Write-Error @"
+        Git for Windows not found. Install from https://git-scm.com/download/win
+        and restart the actions-runner service.
+        "@
+        }
+
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (-not (Test-Path $vswhere)) {
+          Write-Error @"
+        Visual Studio Build Tools not found (vswhere.exe missing).
+        Install "Desktop development with C++" / MSBuild, then restart actions-runner.
+        "@
+        }
+        $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+        if (-not $msbuild -or -not (Test-Path $msbuild)) {
+          Write-Error "MSBuild.exe not found via vswhere. Install Visual Studio Build Tools with MSBuild."
+        }
+        $msbuildDir = Split-Path $msbuild
+        Write-Host "Using MSBuild: $msbuild"
+        Add-Content -Path $env:GITHUB_PATH -Value $msbuildDir

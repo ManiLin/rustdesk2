@@ -1704,8 +1704,10 @@ jobs:
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             python3 ./build.py --flutter --skip-cargo
-            for name in rustdesk*??.deb; do
-              mv "$name" "${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}.deb"
+            for name in *.deb; do
+              if [[ -f "$name" && "$name" != "${{ env.FILE_NAME_PREFIX }}"* ]]; then
+                mv "$name" "${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}.deb"
+              fi
             done
 
             # rpm package

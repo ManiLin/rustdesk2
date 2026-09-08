@@ -2004,9 +2004,11 @@ jobs:
       - name: Rename rustdesk
         shell: bash
         run: |
-          for name in rustdesk*??.deb; do
-              # use cp to duplicate deb files to fit other packages.
-              cp "$name" "${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb"
+          shopt -s nullglob
+          for name in *.deb; do
+              if [[ -f "$name" && "$name" != *"-sciter.deb" ]]; then
+                  cp "$name" "${{ env.FILE_NAME_PREFIX }}${{ env.FILE_NAME_VERSION_SEP }}${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb"
+              fi
           done
 
       - name: Publish debian package

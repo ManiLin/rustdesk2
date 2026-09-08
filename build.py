@@ -699,7 +699,8 @@ def main():
                 system2('cp libsciter-gtk.so tmpdeb/usr/share/rustdesk/')
                 md5_file_folder("tmpdeb/")
                 system2('dpkg-deb -b tmpdeb rustdesk.deb; /bin/rm -rf tmpdeb/')
-                os.rename('rustdesk.deb', 'rustdesk-%s.deb' % version)
+                deb_output_name = f'{_exe_base}-{version}.deb' if _exe_base else f'rustdesk-{version}.deb'
+                os.rename('rustdesk.deb', deb_output_name)
 
 
 def md5_file(fn):

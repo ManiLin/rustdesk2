@@ -428,7 +428,7 @@ handler.addConnection = function(id, is_file_transfer, is_view_camera, is_termin
     update();
     self.timer(1ms, adjustHeader);
     if (authorized) {
-        self.timer(3s, function() {
+        self.timer(1s, function() {
             setWindowState(View.WINDOW_MINIMIZED);
         });
     }

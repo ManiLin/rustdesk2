@@ -4089,13 +4089,14 @@ async fn hc_connection_(
 pub mod peer_online {
     use hbb_common::{
         anyhow::bail,
-        config::{Config, CONNECT_TIMEOUT, READ_TIMEOUT},
+        config::{Config, LocalConfig, CONNECT_TIMEOUT, READ_TIMEOUT, RENDEZVOUS_PORT},
         log,
         rendezvous_proto::*,
         sleep,
-        socket_client::connect_tcp,
+        socket_client::{check_port, connect_tcp},
         ResultType, Stream,
     };
+    use std::collections::HashMap;
 
     pub async fn query_online_states<F: FnOnce(Vec<String>, Vec<String>)>(ids: Vec<String>, f: F) {
         let test = false;
@@ -4106,20 +4107,96 @@ pub mod peer_online {
             f(onlines, offlines)
         } else {
             let query_timeout = std::time::Duration::from_millis(3_000);
-            match query_online_states_(&ids, query_timeout).await {
-                Ok((onlines, offlines)) => {
-                    f(onlines, offlines);
-                }
-                Err(e) => {
-                    log::debug!("query onlines, {}", &e);
+            let mut onlines = Vec::new();
+            let mut offlines = Vec::new();
+            for (server, group) in group_ids_by_server(&ids) {
+                match query_online_states_(&group, &server, query_timeout).await {
+                    Ok((o, off)) => {
+                        onlines.extend(o);
+                        offlines.extend(off);
+                    }
+                    Err(e) => {
+                        // Match the legacy behaviour: a hard failure for a group
+                        // leaves those peers' state untouched.
+                        log::debug!("query onlines, {}", &e);
+                    }
                 }
             }
+            f(onlines, offlines);
         }
     }
 
-    async fn create_online_stream() -> ResultType<Stream> {
-        let (rendezvous_server, _servers, _contained) =
-            crate::get_rendezvous_server(READ_TIMEOUT).await;
+    /// Groups peer ids by the custom rendezvous server configured for one of
+    /// their address book tags. An empty server key means the default server.
+    fn group_ids_by_server(ids: &[String]) -> Vec<(String, Vec<String>)> {
+        let tag_servers = tag_rendezvous_servers();
+        let mut groups: HashMap<String, Vec<String>> = HashMap::new();
+        if tag_servers.is_empty() {
+            groups.insert(String::new(), ids.to_vec());
+            return groups.into_iter().collect();
+        }
+        let id_tags = ab_id_tags();
+        for id in ids {
+            let mut server = String::new();
+            if let Some(tags) = id_tags.get(id) {
+                for tag in tags {
+                    if let Some(s) = tag_servers.get(tag) {
+                        if !s.is_empty() {
+                            server = s.clone();
+                            break;
+                        }
+                    }
+                }
+            }
+            groups.entry(server).or_default().push(id.clone());
+        }
+        groups.into_iter().collect()
+    }
+
+    /// Local option `tag-rendezvous-servers`:
+    /// `{"<tag>": {"server": "host:port", "key": "<pk>"}}`.
+    fn tag_rendezvous_servers() -> HashMap<String, String> {
+        let raw = LocalConfig::get_option("tag-rendezvous-servers");
+        if raw.is_empty() {
+            return HashMap::new();
+        }
+        let mut res = HashMap::new();
+        match serde_json::from_str::<HashMap<String, serde_json::Value>>(&raw) {
+            Ok(map) => {
+                for (tag, v) in map {
+                    if let Some(server) = v.get("server").and_then(|s| s.as_str()) {
+                        // Drop an optional "?key=..." suffix, not needed here.
+                        let host = server.trim().split('?').next().unwrap_or("").trim();
+                        if !host.is_empty() {
+                            res.insert(tag, host.to_owned());
+                        }
+                    }
+                }
+            }
+            Err(e) => log::debug!("invalid tag-rendezvous-servers: {e}"),
+        }
+        res
+    }
+
+    fn ab_id_tags() -> HashMap<String, Vec<String>> {
+        let mut res: HashMap<String, Vec<String>> = HashMap::new();
+        for entry in hbb_common::config::Ab::load().ab_entries {
+            for peer in entry.peers {
+                if !peer.id.is_empty() && !peer.tags.is_empty() {
+                    res.entry(peer.id).or_default().extend(peer.tags);
+                }
+            }
+        }
+        res
+    }
+
+    async fn create_online_stream(server: &str) -> ResultType<Stream> {
+        let rendezvous_server = if server.is_empty() {
+            let (rs, _servers, _contained) = crate::get_rendezvous_server(READ_TIMEOUT).await;
+            rs
+        } else {
+            check_port(server, RENDEZVOUS_PORT)
+        };
         let tmp: Vec<&str> = rendezvous_server.split(":").collect();
         if tmp.len() != 2 {
             bail!("Invalid server address: {}", rendezvous_server);
@@ -4134,6 +4211,7 @@ pub mod peer_online {
 
     async fn query_online_states_(
         ids: &Vec<String>,
+        server: &str,
         timeout: std::time::Duration,
     ) -> ResultType<(Vec<String>, Vec<String>)> {
         let mut msg_out = RendezvousMessage::new();
@@ -4143,7 +4221,7 @@ pub mod peer_online {
             ..Default::default()
         });
 
-        let mut socket = match create_online_stream().await {
+        let mut socket = match create_online_stream(server).await {
             Ok(s) => s,
             Err(e) => {
                 log::debug!("Failed to create peers online stream, {e}");

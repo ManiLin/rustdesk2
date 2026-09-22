@@ -925,7 +925,13 @@ void saveTagRendezvousServers(Map<String, dynamic> map) {
 String _tagServerLabel(dynamic entry) {
   if (entry is Map) {
     final server = (entry['server'] ?? '').toString();
-    if (server.isNotEmpty) return server;
+    final key = (entry['key'] ?? '').toString();
+    if (server.isNotEmpty) {
+      if (key.isEmpty) {
+        return '$server — ${translate('Public key is required for the custom server')}';
+      }
+      return server;
+    }
   }
   return '-';
 }
@@ -944,6 +950,9 @@ Future<void> editTagServerDialog(String tag) async {
       final key = keyController.text.trim();
       if (server.isEmpty) {
         map.remove(tag);
+      } else if (key.isEmpty) {
+        showToast(translate('Public key is required for the custom server'));
+        return;
       } else {
         map[tag] = {'server': server, 'key': key};
       }
@@ -966,7 +975,7 @@ Future<void> editTagServerDialog(String tag) async {
           ).workaroundFreezeLinuxMint(),
           TextField(
             controller: keyController,
-            decoration: const InputDecoration(hintText: 'Public Key'),
+            decoration: InputDecoration(hintText: translate('Public Key')),
           ).workaroundFreezeLinuxMint(),
         ],
       ),

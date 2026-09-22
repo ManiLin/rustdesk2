@@ -348,6 +348,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Enable audio", "Включить передачу звука"),
         ("Unlock Network Settings", "Разблокировать сетевые настройки"),
         ("Server", "Сервер"),
+        ("Public Key", "Публичный ключ"),
+        ("Public key is required for the custom server", "Для дополнительного сервера обязателен публичный ключ"),
         ("Direct IP Access", "Прямой IP-доступ"),
         ("Proxy", "Прокси"),
         ("Apply", "Применить"),

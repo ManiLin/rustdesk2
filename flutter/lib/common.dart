@@ -2573,12 +2573,27 @@ connectMainDesktop(String id,
   }
 }
 
+/// Custom rendezvous server configured for an address book tag.
+class TagRendezvousServer {
+  final String server;
+  final String key;
+
+  const TagRendezvousServer(this.server, this.key);
+
+  /// A custom server without a public key cannot be verified, so connecting
+  /// through it is not allowed.
+  bool get hasKey => key.isNotEmpty;
+
+  /// Argument appended to the peer id, i.e. `id@<connectionArg>`.
+  String get connectionArg => hasKey ? '$server?key=$key' : server;
+}
+
 /// Resolves the custom rendezvous server configured for the first matching
-/// address book tag, e.g. `nizh` -> `host:port?key=...`.
+/// address book tag, e.g. `nizh` -> `host:port` + key.
 ///
 /// The mapping is stored in the local option [kOptionTagRendezvousServers] as
 /// JSON: `{"<tag>": {"server": "host:port", "key": "<public key>"}}`.
-String? tagRendezvousServer(Iterable<dynamic> tags) {
+TagRendezvousServer? tagRendezvousServer(Iterable<dynamic> tags) {
   if (tags.isEmpty) return null;
   final raw = bind.mainGetLocalOption(key: kOptionTagRendezvousServers);
   if (raw.isEmpty) return null;
@@ -2597,7 +2612,7 @@ String? tagRendezvousServer(Iterable<dynamic> tags) {
       final server = (entry['server'] ?? '').toString().trim();
       if (server.isEmpty) continue;
       final key = (entry['key'] ?? '').toString().trim();
-      return key.isEmpty ? server : '$server?key=$key';
+      return TagRendezvousServer(server, key);
     }
   }
   return null;

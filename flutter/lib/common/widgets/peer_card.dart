@@ -1570,8 +1570,13 @@ void connectInPeerTab(BuildContext context, Peer peer, PeerTabIndex tab,
       }
     }
   }
+  final tagServer = tagRendezvousServer(peer.tags);
+  if (tagServer != null && !tagServer.hasKey) {
+    showToast(translate('Public key is required for the custom server'));
+    return;
+  }
   connect(context, peer.id,
-      customServer: tagRendezvousServer(peer.tags),
+      customServer: tagServer?.connectionArg,
       password: password,
       isSharedPassword: isSharedPassword,
       isFileTransfer: isFileTransfer,

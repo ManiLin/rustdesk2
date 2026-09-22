@@ -3353,10 +3353,17 @@ Widget buildErrorBanner(BuildContext context,
       ));
 }
 
+/// Strips the optional `@server[?key=...]` suffix used for custom-server
+/// connections, so peer options/aliases can be looked up by the base id.
+String basePeerId(String id) {
+  final i = id.indexOf('@');
+  return i >= 0 ? id.substring(0, i) : id;
+}
+
 String getDesktopTabLabel(String peerId, String alias) {
   String label = alias.isEmpty ? peerId : alias;
   try {
-    String peer = bind.mainGetPeerSync(id: peerId);
+    String peer = bind.mainGetPeerSync(id: basePeerId(peerId));
     Map<String, dynamic> config = jsonDecode(peer);
     if (config['info']['hostname'] is String) {
       String hostname = config['info']['hostname'];

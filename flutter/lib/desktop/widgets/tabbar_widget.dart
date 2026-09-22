@@ -280,7 +280,7 @@ class DesktopTab extends StatefulWidget {
   }) : super(key: key);
 
   static RxString tablabelGetter(String peerId) {
-    final alias = bind.mainGetPeerOptionSync(id: peerId, key: 'alias');
+    final alias = bind.mainGetPeerOptionSync(id: basePeerId(peerId), key: 'alias');
     return RxString(getDesktopTabLabel(peerId, alias));
   }
 
@@ -329,7 +329,7 @@ class _DesktopTabState extends State<DesktopTab>
   _DesktopTabState() : super();
 
   static RxString tablabelGetter(String peerId) {
-    final alias = bind.mainGetPeerOptionSync(id: peerId, key: 'alias');
+    final alias = bind.mainGetPeerOptionSync(id: basePeerId(peerId), key: 'alias');
     return RxString(getDesktopTabLabel(peerId, alias));
   }
 

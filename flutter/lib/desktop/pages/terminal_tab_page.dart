@@ -67,7 +67,7 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
     String? connToken,
   }) {
     final tabKey = '${peerId}_$terminalId';
-    final alias = bind.mainGetPeerOptionSync(id: peerId, key: 'alias');
+    final alias = bind.mainGetPeerOptionSync(id: basePeerId(peerId), key: 'alias');
     final tabLabel =
         alias.isNotEmpty ? '$alias #$terminalId' : '$peerId #$terminalId';
     return TabInfo(

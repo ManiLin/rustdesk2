@@ -579,7 +579,7 @@ abstract class BasePeerCard extends StatelessWidget {
       context,
       (peer.alias.isEmpty
           ? translate('Connect')
-          : '${translate('Connect')} ${peer.id}'),
+          : '${translate('Connect')} ${peer.alias}'),
     );
   }
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:bot_toast/bot_toast.dart';
@@ -430,6 +431,7 @@ class _AddressBookState extends State<AddressBook> {
         sortMenuItem(), // It's already sorted after pulling down
       if (canWrite) syncMenuItem(),
       filterMenuItem(),
+      getEntry(translate("Server"), () => showTagServersDialog()),
       if (!gFFI.abModel.legacyMode.value && canWrite)
         MenuEntryDivider<String>(),
       if (!gFFI.abModel.legacyMode.value && canWrite)
@@ -864,6 +866,7 @@ class AddressBookTag extends StatelessWidget {
           model.setTagColor(name, newColor);
         }
       }),
+      getEntry(translate("Server"), () => editTagServerDialog(name)),
       getEntry(translate("Delete"), () {
         gFFI.abModel.deleteTag(name);
         Future.delayed(Duration.zero, () => Get.back());
@@ -896,4 +899,123 @@ MenuEntryButton<String> getEntry(String title, VoidCallback proc) {
     proc: proc,
     dismissOnClicked: true,
   );
+}
+
+/// Loads the local `tag -> {server, key}` mapping used to connect peers of a
+/// given address book tag through a custom RustDesk server.
+Map<String, dynamic> loadTagRendezvousServers() {
+  final raw = bind.mainGetLocalOption(key: kOptionTagRendezvousServers);
+  if (raw.isEmpty) return {};
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map) {
+      return decoded.cast<String, dynamic>();
+    }
+  } catch (e) {
+    debugPrint('Invalid $kOptionTagRendezvousServers: $e');
+  }
+  return {};
+}
+
+void saveTagRendezvousServers(Map<String, dynamic> map) {
+  bind.mainSetLocalOption(
+      key: kOptionTagRendezvousServers, value: jsonEncode(map));
+}
+
+String _tagServerLabel(dynamic entry) {
+  if (entry is Map) {
+    final server = (entry['server'] ?? '').toString();
+    if (server.isNotEmpty) return server;
+  }
+  return '-';
+}
+
+/// Sets or clears the custom server (and its public key) for [tag].
+Future<void> editTagServerDialog(String tag) async {
+  final map = loadTagRendezvousServers();
+  final entry = map[tag];
+  final serverController = TextEditingController(
+      text: entry is Map ? (entry['server'] ?? '').toString() : '');
+  final keyController = TextEditingController(
+      text: entry is Map ? (entry['key'] ?? '').toString() : '');
+  gFFI.dialogManager.show((setState, close, context) {
+    submit() {
+      final server = serverController.text.trim();
+      final key = keyController.text.trim();
+      if (server.isEmpty) {
+        map.remove(tag);
+      } else {
+        map[tag] = {'server': server, 'key': key};
+      }
+      saveTagRendezvousServers(map);
+      close();
+    }
+
+    cancel() => close();
+
+    return CustomAlertDialog(
+      title: Text('${translate('Server')}: $tag'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: serverController,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'host:port'),
+          ).workaroundFreezeLinuxMint(),
+          TextField(
+            controller: keyController,
+            decoration: const InputDecoration(hintText: 'Public Key'),
+          ).workaroundFreezeLinuxMint(),
+        ],
+      ),
+      actions: [
+        dialogButton('Cancel', onPressed: cancel, isOutline: true),
+        dialogButton('OK', onPressed: submit),
+      ],
+      onSubmit: submit,
+      onCancel: cancel,
+    );
+  });
+}
+
+/// Lists address book tags and lets the user set a custom server for each.
+Future<void> showTagServersDialog() async {
+  final map = loadTagRendezvousServers();
+  final tags = <String>{
+    ...gFFI.abModel.currentAbTags.map((e) => e.toString()),
+    ...map.keys,
+  }.toList()
+    ..sort();
+  gFFI.dialogManager.show((setState, close, context) {
+    return CustomAlertDialog(
+      title: Text(translate('Server')),
+      content: SizedBox(
+        width: 420,
+        child: tags.isEmpty
+            ? Text(translate('Tags'))
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final tag in tags)
+                    ListTile(
+                      dense: true,
+                      title: Text(tag),
+                      subtitle: Text(_tagServerLabel(map[tag])),
+                      trailing: const Icon(Icons.edit_rounded, size: 18),
+                      onTap: () {
+                        close();
+                        editTagServerDialog(tag);
+                      },
+                    ),
+                ],
+              ),
+      ),
+      actions: [
+        dialogButton('Close', onPressed: close, isOutline: true),
+      ],
+      onCancel: close,
+    );
+  });
 }

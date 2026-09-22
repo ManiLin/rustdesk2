@@ -2573,6 +2573,36 @@ connectMainDesktop(String id,
   }
 }
 
+/// Resolves the custom rendezvous server configured for the first matching
+/// address book tag, e.g. `nizh` -> `host:port?key=...`.
+///
+/// The mapping is stored in the local option [kOptionTagRendezvousServers] as
+/// JSON: `{"<tag>": {"server": "host:port", "key": "<public key>"}}`.
+String? tagRendezvousServer(Iterable<dynamic> tags) {
+  if (tags.isEmpty) return null;
+  final raw = bind.mainGetLocalOption(key: kOptionTagRendezvousServers);
+  if (raw.isEmpty) return null;
+  Map<String, dynamic> map;
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return null;
+    map = decoded.cast<String, dynamic>();
+  } catch (e) {
+    debugPrint('Invalid $kOptionTagRendezvousServers: $e');
+    return null;
+  }
+  for (final tag in tags) {
+    final entry = map[tag.toString()];
+    if (entry is Map) {
+      final server = (entry['server'] ?? '').toString().trim();
+      if (server.isEmpty) continue;
+      final key = (entry['key'] ?? '').toString().trim();
+      return key.isEmpty ? server : '$server?key=$key';
+    }
+  }
+  return null;
+}
+
 /// Connect to a peer with [id].
 /// If [isFileTransfer], starts a session only for file transfer.
 /// If [isViewCamera], starts a session only for view camera.
@@ -2587,6 +2617,7 @@ connect(BuildContext context, String id,
     bool forceRelay = false,
     String? password,
     String? connToken,
+    String? customServer,
     bool? isSharedPassword}) async {
   if (id == '') return;
   if (!isDesktop || desktopType == DesktopType.main) {
@@ -2602,6 +2633,9 @@ connect(BuildContext context, String id,
     } catch (_) {}
   }
   id = id.replaceAll(' ', '');
+  if (customServer != null && customServer.isNotEmpty && !id.contains('@')) {
+    id = '$id@$customServer';
+  }
   final oldId = id;
   id = await bind.mainHandleRelayId(id: id);
   forceRelay = id != oldId || forceRelay;

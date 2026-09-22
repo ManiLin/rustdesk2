@@ -1571,6 +1571,7 @@ void connectInPeerTab(BuildContext context, Peer peer, PeerTabIndex tab,
     }
   }
   connect(context, peer.id,
+      customServer: tagRendezvousServer(peer.tags),
       password: password,
       isSharedPassword: isSharedPassword,
       isFileTransfer: isFileTransfer,

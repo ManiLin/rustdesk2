@@ -68,7 +68,8 @@ docker compose up -d --build
 
 - `POST /api/v1/report` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`, тело JSON (см. `inventory_sync.rs`).
 - `POST /api/v1/auth/login` — `{ "password": "<ADMIN_PASSWORD>" }` → JWT.
-- `GET /api/v1/devices` — заголовок `Authorization: Bearer <jwt>`.
+- `GET /api/v1/devices` — заголовок `Authorization: Bearer <JWT>`
+- `DELETE /api/v1/devices/{id}` — заголовок `Authorization: Bearer <JWT>` — удаление устройства из базы.
 - `GET /api/v1/admin/downloads/rustdesk` — заголовок `Authorization: Bearer <jwt>`, статус загруженного файла.
 - `POST /api/v1/admin/downloads/rustdesk` — заголовок `Authorization: Bearer <jwt>`, `multipart/form-data`: поля **`version`** (строка, обязательно) и **`file`** (`.exe`).
 - `GET /api/v1/downloads/rustdesk/windows/meta` — публичный JSON для клиентского автообновления.

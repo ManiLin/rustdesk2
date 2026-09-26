@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
+    extract::{DefaultBodyLimit, Multipart, Path as AxumPath, State},
     handler::Handler,
-    extract::{DefaultBodyLimit, Multipart, State},
     http::{
         header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
         StatusCode,
@@ -54,8 +54,10 @@ struct DeviceRow {
 
 #[derive(Debug, Deserialize)]
 struct ReportPayload {
+    #[serde(alias = "id")]
     rustdesk_id: String,
     hostname: Option<String>,
+    #[serde(alias = "os_info")]
     os: Option<String>,
     username: Option<String>,
     cpu: Option<String>,
@@ -64,6 +66,7 @@ struct ReportPayload {
     ip_public: Option<String>,
     ip_local: Option<String>,
     temporary_password: Option<String>,
+    #[serde(alias = "version")]
     app_version: Option<String>,
 }
 
@@ -116,6 +119,33 @@ struct SoftwareUpdateMetaDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
     download_path: String,
+}
+
+/// RAII-защитник: гарантирует удаление временного файла, если обработка прервалась
+struct TempFileGuard {
+    path: PathBuf,
+    active: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, active: true }
+    }
+
+    fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let p = self.path.clone();
+            tokio::spawn(async move {
+                let _ = tokio::fs::remove_file(p).await;
+            });
+        }
+    }
 }
 
 fn now_ts() -> i64 {
@@ -193,21 +223,26 @@ async fn get_download_asset_info(state: &AppState) -> anyhow::Result<DownloadAss
     })
 }
 
+fn extract_bearer_token(auth_header: Option<&str>) -> Option<&str> {
+    let h = auth_header?.trim();
+    if let Some(t) = h.strip_prefix("Bearer ") {
+        Some(t.trim())
+    } else if let Some(t) = h.strip_prefix("bearer ") {
+        Some(t.trim())
+    } else {
+        None
+    }
+}
+
 fn verify_device_token(state: &AppState, auth_header: Option<&str>) -> bool {
-    let Some(h) = auth_header else {
+    let Some(t) = extract_bearer_token(auth_header) else {
         return false;
     };
-    let Some(t) = h.strip_prefix("Bearer ") else {
-        return false;
-    };
-    t == state.device_token
+    t == state.device_token.trim()
 }
 
 fn verify_admin_jwt(state: &AppState, auth_header: Option<&str>) -> bool {
-    let Some(h) = auth_header else {
-        return false;
-    };
-    let Some(token) = h.strip_prefix("Bearer ") else {
+    let Some(token) = extract_bearer_token(auth_header) else {
         return false;
     };
     let key = DecodingKey::from_secret(state.jwt_secret.as_bytes());
@@ -239,7 +274,8 @@ async fn report_handler(
     if !verify_device_token(&state, auth) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
-    if p.rustdesk_id.is_empty() {
+    let rustdesk_id = p.rustdesk_id.trim();
+    if rustdesk_id.is_empty() {
         return (StatusCode::BAD_REQUEST, "rustdesk_id required").into_response();
     }
     let os_info = p.os.clone().unwrap_or_default();
@@ -273,7 +309,7 @@ async fn report_handler(
             updated_at = excluded.updated_at
         "#,
     )
-    .bind(&p.rustdesk_id)
+    .bind(rustdesk_id)
     .bind(p.hostname.clone().unwrap_or_default())
     .bind(&os_info)
     .bind(p.username.clone().unwrap_or_default())
@@ -326,7 +362,21 @@ async fn devices_handler(
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     let rows: Result<Vec<DeviceRow>, _> = sqlx::query_as(
-        "SELECT rustdesk_id, hostname, os_info, username, ip_public, ip_local, temporary_password, computer_summary, app_version, updated_at FROM devices ORDER BY updated_at DESC",
+        r#"
+        SELECT
+            rustdesk_id,
+            COALESCE(hostname, '') AS hostname,
+            COALESCE(os_info, '') AS os_info,
+            COALESCE(username, '') AS username,
+            COALESCE(ip_public, '') AS ip_public,
+            COALESCE(ip_local, '') AS ip_local,
+            COALESCE(temporary_password, '') AS temporary_password,
+            COALESCE(computer_summary, '') AS computer_summary,
+            COALESCE(app_version, '') AS app_version,
+            COALESCE(updated_at, 0) AS updated_at
+        FROM devices
+        ORDER BY updated_at DESC
+        "#,
     )
     .fetch_all(&state.pool)
     .await;
@@ -354,6 +404,42 @@ async fn devices_handler(
         }
         Err(e) => {
             tracing::error!("list: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn delete_device_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> impl IntoResponse {
+    let auth = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if !verify_admin_jwt(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let trimmed_id = id.trim();
+    let r = sqlx::query("DELETE FROM devices WHERE rustdesk_id = ?")
+        .bind(trimmed_id)
+        .execute(&state.pool)
+        .await;
+
+    match r {
+        Ok(res) => {
+            if res.rows_affected() == 0 {
+                (StatusCode::NOT_FOUND, "device not found").into_response()
+            } else {
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"ok": true, "deleted": trimmed_id})),
+                )
+                    .into_response()
+            }
+        }
+        Err(e) => {
+            tracing::error!("delete device error: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
@@ -397,6 +483,7 @@ async fn admin_upload_rustdesk_handler(
         std::process::id()
     );
     let temp_path = state.uploads_dir.join(&temp_name);
+    let mut guard = TempFileGuard::new(temp_path.clone());
     let final_path = rustdesk_windows_binary_path(&state);
 
     let mut form_version = String::new();
@@ -409,7 +496,6 @@ async fn admin_upload_rustdesk_handler(
             Ok(field) => field,
             Err(e) => {
                 tracing::warn!("multipart error: {}", e);
-                let _ = tokio::fs::remove_file(&temp_path).await;
                 return (StatusCode::BAD_REQUEST, "invalid multipart payload").into_response();
             }
         };
@@ -427,7 +513,6 @@ async fn admin_upload_rustdesk_handler(
             Some("file") => {
                 let filename = field.file_name().unwrap_or("rustdesk.exe").to_string();
                 if !filename_has_exe_extension(&filename) {
-                    let _ = tokio::fs::remove_file(&temp_path).await;
                     return (
                         StatusCode::BAD_REQUEST,
                         "only .exe files are allowed",
@@ -448,7 +533,6 @@ async fn admin_upload_rustdesk_handler(
                         Ok(chunk) => chunk,
                         Err(e) => {
                             tracing::warn!("multipart chunk error: {}", e);
-                            let _ = tokio::fs::remove_file(&temp_path).await;
                             return (StatusCode::BAD_REQUEST, "invalid upload chunk").into_response();
                         }
                     };
@@ -459,7 +543,6 @@ async fn admin_upload_rustdesk_handler(
 
                     total_size += chunk.len() as u64;
                     if total_size > state.max_upload_bytes {
-                        let _ = tokio::fs::remove_file(&temp_path).await;
                         return (
                             StatusCode::PAYLOAD_TOO_LARGE,
                             "file is too large",
@@ -469,14 +552,12 @@ async fn admin_upload_rustdesk_handler(
 
                     if let Err(e) = file.write_all(&chunk).await {
                         tracing::error!("write upload file: {}", e);
-                        let _ = tokio::fs::remove_file(&temp_path).await;
                         return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
                     }
                 }
 
                 if let Err(e) = file.flush().await {
                     tracing::error!("flush upload file: {}", e);
-                    let _ = tokio::fs::remove_file(&temp_path).await;
                     return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
                 }
 
@@ -488,29 +569,28 @@ async fn admin_upload_rustdesk_handler(
     }
 
     if !file_written || total_size == 0 {
-        let _ = tokio::fs::remove_file(&temp_path).await;
         return (StatusCode::BAD_REQUEST, "file is required").into_response();
     }
 
     let version_trim = form_version.trim();
     if version_trim.is_empty() {
-        let _ = tokio::fs::remove_file(&temp_path).await;
         return (StatusCode::BAD_REQUEST, "version is required").into_response();
     }
 
     if tokio::fs::try_exists(&final_path).await.unwrap_or(false) {
         if let Err(e) = tokio::fs::remove_file(&final_path).await {
             tracing::error!("remove old rustdesk.exe: {}", e);
-            let _ = tokio::fs::remove_file(&temp_path).await;
             return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
         }
     }
 
     if let Err(e) = tokio::fs::rename(&temp_path, &final_path).await {
         tracing::error!("move rustdesk.exe upload: {}", e);
-        let _ = tokio::fs::remove_file(&temp_path).await;
         return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
     }
+
+    // Успешно переместили во final_path — отключаем удаление guard'ом
+    guard.disarm();
 
     let ts = now_ts();
     if let Err(e) = sqlx::query(
@@ -566,31 +646,55 @@ async fn public_software_update_meta_handler(State(state): State<Arc<AppState>>)
     Json(body).into_response()
 }
 
-async fn public_download_rustdesk_handler(
+async fn public_download_rustdesk_head_handler(
     State(state): State<Arc<AppState>>,
 ) -> Response {
     let path = rustdesk_windows_binary_path(&state);
-    let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
-    if !exists {
+    let Ok(metadata) = tokio::fs::metadata(&path).await else {
         return (StatusCode::NOT_FOUND, "file not found").into_response();
-    }
-
-    let bytes = match tokio::fs::read(&path).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            tracing::error!("read rustdesk.exe for download: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "download error").into_response();
-        }
     };
 
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/octet-stream")
         .header(CONTENT_DISPOSITION, "attachment; filename=\"rustdesk.exe\"")
-        .header(CONTENT_LENGTH, bytes.len().to_string())
+        .header(CONTENT_LENGTH, metadata.len().to_string())
         .header("Cache-Control", "no-store, no-cache, must-revalidate")
         .header("X-Content-Type-Options", "nosniff")
-        .body(Body::from(bytes))
+        .body(Body::empty())
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "download response error").into_response()
+        })
+}
+
+async fn public_download_rustdesk_handler(
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let path = rustdesk_windows_binary_path(&state);
+    let metadata = match tokio::fs::metadata(&path).await {
+        Ok(m) => m,
+        Err(_) => return (StatusCode::NOT_FOUND, "file not found").into_response(),
+    };
+
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("read rustdesk.exe for download: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "download error").into_response();
+        }
+    };
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(CONTENT_DISPOSITION, "attachment; filename=\"rustdesk.exe\"")
+        .header(CONTENT_LENGTH, metadata.len().to_string())
+        .header("Cache-Control", "no-store, no-cache, must-revalidate")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(body)
         .unwrap_or_else(|_| {
             (StatusCode::INTERNAL_SERVER_ERROR, "download response error").into_response()
         })
@@ -613,6 +717,9 @@ async fn main() -> anyhow::Result<()> {
     });
     let admin_password =
         env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin-change-me".to_string());
+    if admin_password == "admin-change-me" {
+        tracing::warn!("ADMIN_PASSWORD is set to default 'admin-change-me' — please set ADMIN_PASSWORD in production");
+    }
     let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| {
         tracing::warn!("JWT_SECRET not set, using dev default");
         "dev-secret-change-in-production-min-32-chars!!".to_string()
@@ -666,6 +773,17 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
+    // Очистка брошенных временных файлов загрузки при перезапуске
+    if let Ok(mut entries) = tokio::fs::read_dir(&uploads_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            if name.starts_with(".rustdesk-upload-") && name.ends_with(".tmp") {
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+    }
+
     let state = Arc::new(AppState {
         pool,
         device_token,
@@ -688,6 +806,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/report", post(report_handler))
         .route("/api/v1/auth/login", post(login_handler))
         .route("/api/v1/devices", get(devices_handler))
+        .route("/api/v1/devices/:id", axum::routing::delete(delete_device_handler))
         .route(
             "/api/v1/admin/downloads/rustdesk",
             get(admin_download_info_handler).post(
@@ -700,7 +819,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/downloads/rustdesk/windows/latest",
-            get(public_download_rustdesk_handler),
+            get(public_download_rustdesk_handler).head(public_download_rustdesk_head_handler),
         )
         .layer(TraceLayer::new_for_http())
         .layer(cors)

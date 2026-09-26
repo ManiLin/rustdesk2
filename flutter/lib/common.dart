@@ -3227,7 +3227,14 @@ Widget buildErrorBanner(BuildContext context,
 }
 
 String getDesktopTabLabel(String peerId, String alias) {
-  String label = alias.isEmpty ? peerId : alias;
+  // If the peer has an alias (e.g. from the address book), show it as is.
+  // Previously "@hostname" was appended here, but hostname is only saved to
+  // PeerConfig after login, so the label changed on the first tab rebuild
+  // (e.g. when switching tabs) from "Alias" to "Alias@hostname".
+  if (alias.isNotEmpty) {
+    return alias;
+  }
+  String label = peerId;
   try {
     String peer = bind.mainGetPeerSync(id: peerId);
     Map<String, dynamic> config = jsonDecode(peer);

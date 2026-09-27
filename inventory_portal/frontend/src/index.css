@@ -680,3 +680,18 @@ table.fluent-table {
     align-items: stretch;
   }
 }
+
+/* Кнопка удаления строки в таблице устройств */
+.fluent-row-delete {
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.fluent-table td:last-child,
+.fluent-table th:last-child {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}

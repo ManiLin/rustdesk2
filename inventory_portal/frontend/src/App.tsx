@@ -107,6 +107,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [selectedUploadName, setSelectedUploadName] = useState("");
   const [releaseVersion, setReleaseVersion] = useState("");
+  const [deletingId, setDeletingId] = useState("");
   const rustdeskFileInputRef = useRef<HTMLInputElement>(null);
 
   const logout = useCallback(() => {
@@ -188,6 +189,40 @@ export default function App() {
       setListErr("Ошибка сети");
     }
   }, [token, logout]);
+
+  const deleteDevice = useCallback(
+    async (id: string) => {
+      if (!token) return;
+      if (!window.confirm(`Удалить устройство ${id} из списка?`)) return;
+      setListErr("");
+      setDeletingId(id);
+      try {
+        const r = await fetch(`${apiBase()}/api/v1/devices/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.status === 401) {
+          logout();
+          return;
+        }
+        if (r.status === 404) {
+          setListErr("Устройство уже удалено");
+          await load();
+          return;
+        }
+        if (!r.ok) {
+          setListErr("Не удалось удалить устройство");
+          return;
+        }
+        setDevices((prev) => prev.filter((d) => d.rustdesk_id !== id));
+      } catch {
+        setListErr("Ошибка сети при удалении");
+      } finally {
+        setDeletingId("");
+      }
+    },
+    [token, logout, load]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -510,6 +545,7 @@ export default function App() {
                       <th>Врем. пароль</th>
                       <th>Версия</th>
                       <th>Обновлено</th>
+                      <th aria-label="Действия" />
                     </tr>
                   </thead>
                   <tbody>
@@ -526,6 +562,18 @@ export default function App() {
                         <td className="mono">{d.temporary_password || "—"}</td>
                         <td>{d.app_version || "—"}</td>
                         <td className="mono">{d.updated_at}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="fluent-btn fluent-btn-secondary fluent-row-delete"
+                            title="Удалить устройство"
+                            aria-label={`Удалить устройство ${d.rustdesk_id}`}
+                            disabled={deletingId === d.rustdesk_id}
+                            onClick={() => void deleteDevice(d.rustdesk_id)}
+                          >
+                            {deletingId === d.rustdesk_id ? "…" : "Удалить"}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

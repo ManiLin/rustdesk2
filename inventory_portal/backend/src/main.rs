@@ -206,6 +206,66 @@ struct BuildQuery {
     platform: String,
 }
 
+/// Сервер из общего реестра (`servers`): источник выпадающего списка в клиенте.
+#[derive(Debug, sqlx::FromRow)]
+struct ServerRow {
+    id: i64,
+    name: String,
+    host: String,
+    public_key: String,
+    created_by: String,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ServerDto {
+    id: i64,
+    name: String,
+    host: String,
+    public_key: String,
+    created_by: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl From<ServerRow> for ServerDto {
+    fn from(r: ServerRow) -> Self {
+        Self {
+            id: r.id,
+            name: r.name,
+            host: r.host,
+            public_key: r.public_key,
+            created_by: r.created_by,
+            created_at: format_ts(r.created_at),
+            updated_at: format_ts(r.updated_at),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerPayload {
+    #[serde(default)]
+    name: String,
+    host: String,
+    /// Public key сервера; принимаем и короткое имя `key`.
+    #[serde(default, alias = "key")]
+    public_key: String,
+    #[serde(default)]
+    created_by: String,
+}
+
+const SERVERS_COLUMNS: &str = "id, name, host, public_key, created_by, created_at, updated_at";
+
+/// Приводит адрес сервера к виду `host:port`; схема, путь и пробелы недопустимы.
+fn normalize_server_host(raw: &str) -> Option<String> {
+    let h = raw.trim().trim_end_matches('/');
+    if h.is_empty() || h.contains('/') || h.chars().any(char::is_whitespace) || !h.contains(':') {
+        return None;
+    }
+    Some(h.to_ascii_lowercase())
+}
+
 /// RAII-защитник: гарантирует удаление временного файла, если обработка прервалась
 struct TempFileGuard {
     path: PathBuf,
@@ -902,6 +962,136 @@ async fn delete_device_handler(
     }
 }
 
+/// Доступ к реестру серверов: админский JWT или device-токен клиента.
+fn verify_device_or_admin(state: &AppState, auth_header: Option<&str>) -> bool {
+    verify_admin_jwt(state, auth_header) || verify_device_token(state, auth_header)
+}
+
+/// Общий реестр RustDesk-серверов: клиенты тянут его для выпадающего списка.
+async fn list_servers_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let auth = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if !verify_device_or_admin(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let rows = sqlx::query_as::<_, ServerRow>(&format!(
+        "SELECT {SERVERS_COLUMNS} FROM servers ORDER BY name COLLATE NOCASE ASC, host ASC"
+    ))
+    .fetch_all(&state.pool)
+    .await;
+    match rows {
+        Ok(list) => {
+            let out: Vec<ServerDto> = list.into_iter().map(ServerDto::from).collect();
+            Json(out).into_response()
+        }
+        Err(e) => {
+            tracing::error!("list servers: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// Добавляет сервер в общий реестр или обновляет существующий (по `host`).
+async fn upsert_server_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(p): Json<ServerPayload>,
+) -> impl IntoResponse {
+    let auth = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if !verify_device_or_admin(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let Some(host) = normalize_server_host(&p.host) else {
+        return (StatusCode::BAD_REQUEST, "invalid server host, use host:port").into_response();
+    };
+    let public_key = p.public_key.trim();
+    if public_key.is_empty() {
+        return (StatusCode::BAD_REQUEST, "public key is required").into_response();
+    }
+    let name = p.name.trim();
+    let name = if name.is_empty() {
+        host.clone()
+    } else {
+        name.to_string()
+    };
+    let ts = now_ts();
+    let r = sqlx::query(
+        r#"
+        INSERT INTO servers (name, host, public_key, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(host) DO UPDATE SET
+            name = excluded.name,
+            public_key = excluded.public_key,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(&name)
+    .bind(&host)
+    .bind(public_key)
+    .bind(p.created_by.trim())
+    .bind(ts)
+    .bind(ts)
+    .execute(&state.pool)
+    .await;
+    if let Err(e) = r {
+        tracing::error!("upsert server: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    }
+    tracing::info!(host = %host, name = %name, "server registered in shared list");
+    let row = sqlx::query_as::<_, ServerRow>(&format!(
+        "SELECT {SERVERS_COLUMNS} FROM servers WHERE host = ?"
+    ))
+    .bind(&host)
+    .fetch_optional(&state.pool)
+    .await;
+    match row {
+        Ok(Some(s)) => (StatusCode::OK, Json(ServerDto::from(s))).into_response(),
+        Ok(None) => (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response(),
+        Err(e) => {
+            tracing::error!("read back server: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// Удаляет сервер из реестра (только админ).
+async fn delete_server_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    AxumPath(id): AxumPath<i64>,
+) -> impl IntoResponse {
+    let auth = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if !verify_admin_jwt(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let r = sqlx::query("DELETE FROM servers WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+    match r {
+        Ok(res) => {
+            if res.rows_affected() == 0 {
+                (StatusCode::NOT_FOUND, "server not found").into_response()
+            } else {
+                (StatusCode::OK, Json(serde_json::json!({"ok": true, "deleted": id})))
+                    .into_response()
+            }
+        }
+        Err(e) => {
+            tracing::error!("delete server: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
 fn verify_ci_token(state: &AppState, auth_header: Option<&str>) -> bool {
     let Some(t) = extract_bearer_token(auth_header) else {
         return false;
@@ -1413,6 +1603,22 @@ async fn main() -> anyhow::Result<()> {
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS servers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL DEFAULT '',
+            host TEXT NOT NULL UNIQUE,
+            public_key TEXT NOT NULL DEFAULT '',
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
     // Migrate the legacy single-file release into the builds table (once).
     migrate_legacy_release(&pool, &uploads_dir).await;
 
@@ -1464,6 +1670,14 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/devices/{id}",
             axum::routing::delete(delete_device_handler),
+        )
+        .route(
+            "/api/v1/servers",
+            get(list_servers_handler).post(upsert_server_handler),
+        )
+        .route(
+            "/api/v1/admin/servers/{id}",
+            axum::routing::delete(delete_server_handler),
         )
         .route(
             "/api/v1/admin/builds",

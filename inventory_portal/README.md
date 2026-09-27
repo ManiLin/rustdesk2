@@ -67,6 +67,22 @@ docker compose up -d --build
 
 Локальная сборка: `INVENTORY_REPORT_URL='https://…' cargo build …`
 
+## Общий реестр доп. серверов для тегов адресной книги
+
+Клиент подключается к пиру с тегом (ключевым словом) через дополнительный
+RustDesk-сервер, если для тега задан сервер: используется синтаксис ID
+`peerId@host:port?key=<public key>`.
+
+- **Реестр серверов (`host:port` + public key) хранится на портале** и раздаётся
+  клиентам через `GET /api/v1/servers`; в клиенте список кэшируется
+  (локальная опция `tag-rendezvous-server-list`), поэтому доступен и без портала.
+- **Привязка «тег → сервер» остаётся локальной** (опция `tag-rendezvous-servers`)
+  и задаётся в клиенте: правый клик по тегу → **Server** → сервер выбирается из
+  выпадающего списка, public key подставляется автоматически.
+- Добавить сервер в общий список можно из клиента (кнопка **Add server to the
+  shared list** в том же диалоге) или в админ-UI портала (секция
+  «RustDesk-серверы»); в реестре ключ обязателен.
+
 ## Настройка RustDesk
 
 В конфигурации клиента (или при сборке через встроенные опции):
@@ -98,7 +114,10 @@ docker compose up -d --build
 ## API
 
 - `POST /api/v1/report` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`, тело JSON (см. `inventory_sync.rs`).
-- `POST /api/v1/ad/assign` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`, AD → общая адресная книга (см. раздел выше).
+- `POST /api/v1/ad/assign` — заголовок `Authorization: Bearer <INVEN...N>`, AD → общая адресная книга (см. раздел выше).
+- `GET /api/v1/servers` — **общий реестр дополнительных RustDesk-серверов** (Bearer device-токен клиента или админский JWT): `[{id, name, host, public_key, …}]`.
+- `POST /api/v1/servers` — добавить/обновить сервер в реестре (`{name, host, public_key}`); принимается тот же device-токен (любой клиент) или JWT. Ключ обязателен, `host` — в виде `host:port`.
+- `DELETE /api/v1/admin/servers/{id}` — удалить сервер из реестра (JWT).
 - `POST /api/v1/auth/login` — `{ "password": "<ADMIN_PASSWORD>" }` → JWT.
 - `GET /api/v1/devices` — заголовок `Authorization: Bearer ***
 - `DELETE /api/v1/devices/{id}` — заголовок `Authorization: Bearer *** — удаление устройства из базы.

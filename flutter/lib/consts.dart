@@ -93,6 +93,8 @@ const String kOptionOpenInTabs = "allow-open-in-tabs";
 const String kOptionOpenInWindows = "allow-open-in-windows";
 const String kOptionForceAlwaysRelay = "force-always-relay";
 const String kOptionTagRendezvousServers = "tag-rendezvous-servers";
+/// Кэш общего реестра доп. серверов, полученного с портала учёта.
+const String kOptionTagServerList = "tag-rendezvous-server-list";
 const String kOptionViewOnly = "view_only";
 const String kOptionEnableLanDiscovery = "enable-lan-discovery";
 const String kOptionWhitelist = "whitelist";

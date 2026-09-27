@@ -27,6 +27,16 @@ type Build = {
   approved_by: string;
 };
 
+type TagServer = {
+  id: number;
+  name: string;
+  host: string;
+  public_key: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 const TOKEN_KEY = "inv_portal_jwt";
 
 const FLAVORS = ["normal", "cashdesk"];
@@ -110,6 +120,15 @@ export default function App() {
   const [buildUploading, setBuildUploading] = useState(false);
   const [selectedBuildName, setSelectedBuildName] = useState("");
   const [deletingId, setDeletingId] = useState("");
+
+  const [servers, setServers] = useState<TagServer[]>([]);
+  const [serversErr, setServersErr] = useState("");
+  const [serversMsg, setServersMsg] = useState("");
+  const [serverName, setServerName] = useState("");
+  const [serverHost, setServerHost] = useState("");
+  const [serverKey, setServerKey] = useState("");
+  const [serverSaving, setServerSaving] = useState(false);
+  const [deletingServerId, setDeletingServerId] = useState(0);
   const buildFileInputRef = useRef<HTMLInputElement>(null);
 
   const logout = useCallback(() => {
@@ -119,6 +138,9 @@ export default function App() {
     setBuilds([]);
     setBuildsErr("");
     setBuildsMsg("");
+    setServers([]);
+    setServersErr("");
+    setServersMsg("");
   }, []);
 
   const login = async (e: React.FormEvent) => {
@@ -222,11 +244,112 @@ export default function App() {
     }
   }, [token, logout]);
 
+  const loadServers = useCallback(async () => {
+    if (!token) return;
+    setServersErr("");
+    try {
+      const r = await fetch(`${apiBase()}/api/v1/servers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.status === 401) {
+        logout();
+        return;
+      }
+      if (!r.ok) {
+        setServersErr("Не удалось получить список серверов");
+        return;
+      }
+      setServers((await r.json()) as TagServer[]);
+    } catch {
+      setServersErr("Ошибка сети при загрузке серверов");
+    }
+  }, [token, logout]);
+
+  const saveServer = useCallback(async () => {
+    if (!token) return;
+    setServersErr("");
+    setServersMsg("");
+    const host = serverHost.trim();
+    const key = serverKey.trim();
+    if (!host || !host.includes(":")) {
+      setServersErr("Укажите адрес сервера в виде host:port");
+      return;
+    }
+    if (!key) {
+      setServersErr("Public key обязателен");
+      return;
+    }
+    setServerSaving(true);
+    try {
+      const r = await fetch(`${apiBase()}/api/v1/servers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: serverName.trim(), host, public_key: key }),
+      });
+      if (r.status === 401) {
+        logout();
+        return;
+      }
+      if (!r.ok) {
+        setServersErr(r.status === 400 ? await r.text() : "Не удалось сохранить сервер");
+        return;
+      }
+      setServersMsg(`Сервер ${host} добавлен в общий список`);
+      setServerName("");
+      setServerHost("");
+      setServerKey("");
+      await loadServers();
+    } catch {
+      setServersErr("Ошибка сети при сохранении сервера");
+    } finally {
+      setServerSaving(false);
+    }
+  }, [token, logout, loadServers, serverName, serverHost, serverKey]);
+
+  const deleteServer = useCallback(
+    async (id: number) => {
+      if (!token) return;
+      if (!window.confirm(`Удалить сервер #${id} из общего списка?`)) return;
+      setServersErr("");
+      setServersMsg("");
+      setDeletingServerId(id);
+      try {
+        const r = await fetch(`${apiBase()}/api/v1/admin/servers/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.status === 401) {
+          logout();
+          return;
+        }
+        if (r.status === 404) {
+          setServersErr("Сервер уже удалён");
+          await loadServers();
+          return;
+        }
+        if (!r.ok) {
+          setServersErr("Не удалось удалить сервер");
+          return;
+        }
+        setServers((prev) => prev.filter((s) => s.id !== id));
+      } catch {
+        setServersErr("Ошибка сети при удалении сервера");
+      } finally {
+        setDeletingServerId(0);
+      }
+    },
+    [token, logout, loadServers]
+  );
+
   useEffect(() => {
     if (!token) return;
     void load();
     void loadBuilds();
-  }, [token, load, loadBuilds]);
+    void loadServers();
+  }, [token, load, loadBuilds, loadServers]);
 
   const uploadBuild = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -550,6 +673,123 @@ export default function App() {
             )}
           </div>
 
+          <div className="fluent-card fluent-upload-card">
+            <div className="fluent-upload-header">
+              <div>
+                <h2>RustDesk-серверы</h2>
+                <p>
+                  Общий реестр дополнительных серверов: адрес (<span className="mono">host:port</span>) и public key. Клиент тянет
+                  этот список и выбирает сервер из выпадающего списка при настройке тега адресной книги — ключ подставляется
+                  автоматически. Добавить сервер может и клиент (<span className="mono">POST /api/v1/servers</span>).
+                </p>
+              </div>
+              <span className="fluent-badge" title="Всего серверов">
+                {servers.length}
+              </span>
+            </div>
+
+            <div className="fluent-upload-grid">
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">Название</span>
+                <input
+                  className="fluent-text-input"
+                  type="text"
+                  value={serverName}
+                  onChange={(e) => setServerName(e.target.value)}
+                  placeholder="Например: филиал Нижнекамск"
+                  disabled={serverSaving}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">Адрес</span>
+                <input
+                  className="fluent-text-input mono"
+                  type="text"
+                  value={serverHost}
+                  onChange={(e) => setServerHost(e.target.value)}
+                  placeholder="rustdesk2.example.ru:21116"
+                  disabled={serverSaving}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">Public key</span>
+                <input
+                  className="fluent-text-input mono"
+                  type="text"
+                  value={serverKey}
+                  onChange={(e) => setServerKey(e.target.value)}
+                  placeholder="base64 key.pub"
+                  disabled={serverSaving}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">&nbsp;</span>
+                <button
+                  type="button"
+                  className="fluent-btn fluent-btn-primary"
+                  disabled={serverSaving}
+                  onClick={() => void saveServer()}
+                >
+                  {serverSaving ? "Сохранение…" : "Добавить сервер"}
+                </button>
+              </div>
+            </div>
+
+            {serversErr ? <div className="fluent-error">{serversErr}</div> : null}
+            {serversMsg ? <div className="fluent-success">{serversMsg}</div> : null}
+
+            {servers.length === 0 ? (
+              <div className="fluent-empty">Серверов пока нет.</div>
+            ) : (
+              <div className="fluent-table-wrap">
+                <table className="fluent-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Название</th>
+                      <th>Адрес</th>
+                      <th>Public key</th>
+                      <th>Обновлён</th>
+                      <th aria-label="Действия" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {servers.map((s) => (
+                      <tr key={s.id}>
+                        <td className="mono">{s.id}</td>
+                        <td>{s.name || "—"}</td>
+                        <td className="mono">{s.host}</td>
+                        <td className="mono" title={s.public_key || undefined}>
+                          {s.public_key
+                            ? s.public_key.length > 16
+                              ? `${s.public_key.slice(0, 16)}…`
+                              : s.public_key
+                            : "—"}
+                        </td>
+                        <td className="mono">{s.updated_at}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="fluent-btn fluent-btn-secondary fluent-row-delete"
+                            title="Удалить сервер"
+                            aria-label={`Удалить сервер ${s.host}`}
+                            disabled={deletingServerId === s.id}
+                            onClick={() => void deleteServer(s.id)}
+                          >
+                            {deletingServerId === s.id ? "…" : "Удалить"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="win11-commandbar">
             <div className="fluent-search-wrap">
               <IconSearch />
@@ -572,6 +812,7 @@ export default function App() {
                 onClick={() => {
                   void load();
                   void loadBuilds();
+                  void loadServers();
                 }}
               >
                 Обновить

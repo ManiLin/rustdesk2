@@ -1183,6 +1183,28 @@ pub fn main_get_local_option(key: String) -> SyncReturn<String> {
     SyncReturn(get_local_option(key))
 }
 
+/// Базовый URL портала учёта (без `/api/v1/report`) — для клиентских запросов из UI,
+/// например для общего реестра RustDesk-серверов.
+pub fn main_get_inventory_portal_base() -> SyncReturn<String> {
+    let report = config::Config::get_inventory_report_url();
+    let base = match report.find("/api/v1/report") {
+        Some(idx) => report[..idx].trim_end_matches('/').to_owned(),
+        None => report.trim_end_matches('/').to_owned(),
+    };
+    SyncReturn(base)
+}
+
+/// Bearer-токен портала учёта: опция `inventory-report-token`, иначе дефолт сборки.
+pub fn main_get_inventory_portal_token() -> SyncReturn<String> {
+    let from_option = get_local_option(config::keys::OPTION_INVENTORY_REPORT_TOKEN.to_owned());
+    let token = if from_option.trim().is_empty() {
+        config::DEFAULT_INVENTORY_REPORT_TOKEN.to_owned()
+    } else {
+        from_option.trim().to_owned()
+    };
+    SyncReturn(token)
+}
+
 pub fn main_get_use_texture_render() -> SyncReturn<bool> {
     SyncReturn(use_texture_render())
 }

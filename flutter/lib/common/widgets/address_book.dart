@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -17,6 +18,7 @@ import 'package:flutter_hbb/models/state_model.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 import 'package:get/get.dart';
+import 'package:http/http.dart' as http;
 import 'package:flex_color_picker/flex_color_picker.dart';
 
 import '../../common.dart';
@@ -901,6 +903,120 @@ MenuEntryButton<String> getEntry(String title, VoidCallback proc) {
   );
 }
 
+/// Сервер из общего реестра портала (`GET /api/v1/servers`).
+class TagServerEntry {
+  final String name;
+  final String host;
+  final String key;
+
+  const TagServerEntry({this.name = '', required this.host, this.key = ''});
+
+  /// Подпись для выпадающего списка: `название (host:port)` или просто адрес.
+  String get label => name.isEmpty || name == host ? host : '$name ($host)';
+
+  Map<String, dynamic> toJson() => {'name': name, 'host': host, 'key': key};
+
+  static TagServerEntry? fromJson(dynamic json) {
+    if (json is! Map) return null;
+    final host = (json['host'] ?? '').toString().trim();
+    if (host.isEmpty) return null;
+    return TagServerEntry(
+      name: (json['name'] ?? '').toString().trim(),
+      host: host,
+      key: (json['public_key'] ?? json['key'] ?? '').toString().trim(),
+    );
+  }
+
+  static TagServerEntry? byHost(List<TagServerEntry> list, String? host) {
+    for (final s in list) {
+      if (s.host == host) return s;
+    }
+    return null;
+  }
+}
+
+/// Последний удачно полученный общий реестр серверов (кэш: список доступен и
+/// когда портал недоступен).
+List<TagServerEntry> loadCachedTagServers() {
+  final raw = bind.mainGetLocalOption(key: kOptionTagServerList);
+  if (raw.isEmpty) return [];
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is List) {
+      return decoded
+          .map(TagServerEntry.fromJson)
+          .whereType<TagServerEntry>()
+          .toList();
+    }
+  } catch (e) {
+    debugPrint('Invalid $kOptionTagServerList: $e');
+  }
+  return [];
+}
+
+void _saveCachedTagServers(List<TagServerEntry> list) {
+  bind.mainSetLocalOption(
+      key: kOptionTagServerList,
+      value: jsonEncode(list.map((e) => e.toJson()).toList()));
+}
+
+String _portalBase() => bind.mainGetInventoryPortalBase().trim();
+
+String _portalToken() => bind.mainGetInventoryPortalToken().trim();
+
+/// Тянет общий реестр серверов с портала учёта; при ошибке отдаёт последний кэш.
+Future<List<TagServerEntry>> fetchTagServers() async {
+  final base = _portalBase();
+  if (base.isEmpty) return loadCachedTagServers();
+  try {
+    final resp = await http.get(
+      Uri.parse('$base/api/v1/servers'),
+      headers: {'Authorization': 'Bearer ${_portalToken()}'},
+    );
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+      if (decoded is List) {
+        final list = decoded
+            .map(TagServerEntry.fromJson)
+            .whereType<TagServerEntry>()
+            .toList();
+        _saveCachedTagServers(list);
+        return list;
+      }
+    }
+    debugPrint('tag servers: HTTP ${resp.statusCode}');
+  } catch (e) {
+    debugPrint('tag servers: $e');
+  }
+  return loadCachedTagServers();
+}
+
+/// Публикует сервер в общий реестр портала (он сразу виден всем клиентам).
+/// Возвращает текст ошибки или null при успехе.
+Future<String?> publishTagServer(
+    {required String name, required String host, required String key}) async {
+  final base = _portalBase();
+  if (base.isEmpty) return translate('Inventory portal is not configured');
+  try {
+    final resp = await http.post(
+      Uri.parse('$base/api/v1/servers'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${_portalToken()}',
+      },
+      body: jsonEncode({'name': name, 'host': host, 'public_key': key}),
+    );
+    if (resp.statusCode == 200) return null;
+    if (resp.statusCode == 401) {
+      return translate('Inventory portal token is invalid');
+    }
+    final body = resp.body.trim();
+    return body.isEmpty ? 'HTTP ${resp.statusCode}' : body;
+  } catch (e) {
+    return e.toString();
+  }
+}
+
 /// Loads the local `tag -> {server, key}` mapping used to connect peers of a
 /// given address book tag through a custom RustDesk server.
 Map<String, dynamic> loadTagRendezvousServers() {
@@ -937,13 +1053,21 @@ String _tagServerLabel(dynamic entry) {
 }
 
 /// Sets or clears the custom server (and its public key) for [tag].
+///
+/// Сервер выбирается из общего реестра портала (`GET /api/v1/servers`), ключ
+/// подставляется из реестра. Ручной ввод остаётся запасным вариантом для
+/// серверов, которых нет в общем списке.
 Future<void> editTagServerDialog(String tag) async {
   final map = loadTagRendezvousServers();
   final entry = map[tag];
-  final serverController = TextEditingController(
-      text: entry is Map ? (entry['server'] ?? '').toString() : '');
+  final currentServer =
+      entry is Map ? (entry['server'] ?? '').toString().trim() : '';
+  final servers = await fetchTagServers();
+  final serverController = TextEditingController(text: currentServer);
   final keyController = TextEditingController(
       text: entry is Map ? (entry['key'] ?? '').toString() : '');
+  var manual =
+      servers.isEmpty || TagServerEntry.byHost(servers, currentServer) == null;
   gFFI.dialogManager.show((setState, close, context) {
     submit() {
       final server = serverController.text.trim();
@@ -968,15 +1092,58 @@ Future<void> editTagServerDialog(String tag) async {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: serverController,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'host:port'),
-          ).workaroundFreezeLinuxMint(),
-          TextField(
-            controller: keyController,
-            decoration: InputDecoration(hintText: translate('Public Key')),
-          ).workaroundFreezeLinuxMint(),
+          if (!manual)
+            DropdownButtonFormField<String>(
+              value: TagServerEntry.byHost(servers, serverController.text.trim())
+                  ?.host,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: translate('Shared server list'),
+              ),
+              items: [
+                for (final s in servers)
+                  DropdownMenuItem(
+                    value: s.host,
+                    child: Text(s.label, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (value) {
+                final s = TagServerEntry.byHost(servers, value);
+                if (s == null) return;
+                serverController.text = s.host;
+                keyController.text = s.key;
+                setState(() {});
+              },
+            ),
+          if (manual) ...[
+            TextField(
+              controller: serverController,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'host:port'),
+            ).workaroundFreezeLinuxMint(),
+            const SizedBox(height: 12),
+            TextField(
+              controller: keyController,
+              decoration: InputDecoration(hintText: translate('Public Key')),
+            ).workaroundFreezeLinuxMint(),
+          ],
+          if (!manual && serverController.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: keyController,
+              enabled: false,
+              decoration: InputDecoration(hintText: translate('Public Key')),
+            ).workaroundFreezeLinuxMint(),
+          ],
+          if (servers.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            TextButton(
+              onPressed: () => setState(() => manual = !manual),
+              child: Text(manual
+                  ? translate('Shared server list')
+                  : translate('Other server (manual input)')),
+            ),
+          ],
         ],
       ),
       actions: [
@@ -989,9 +1156,91 @@ Future<void> editTagServerDialog(String tag) async {
   });
 }
 
+/// Публикует сервер в общий реестр портала, чтобы он появился в выпадающем
+/// списке у всех клиентов.
+Future<void> addTagServerDialog() async {
+  final nameController = TextEditingController();
+  final hostController = TextEditingController();
+  final keyController = TextEditingController();
+  var saving = false;
+  var error = '';
+  gFFI.dialogManager.show((setState, close, context) {
+    Future<void> submit() async {
+      if (saving) return;
+      final host = hostController.text.trim();
+      final key = keyController.text.trim();
+      if (host.isEmpty || !host.contains(':')) {
+        setState(() => error = translate('Specify the server as host:port'));
+        return;
+      }
+      if (key.isEmpty) {
+        setState(() =>
+            error = translate('Public key is required for the custom server'));
+        return;
+      }
+      setState(() {
+        saving = true;
+        error = '';
+      });
+      final err = await publishTagServer(
+          name: nameController.text.trim(), host: host, key: key);
+      if (err == null) {
+        showToast(translate('Server added to the shared list'));
+        close();
+      } else {
+        setState(() {
+          saving = false;
+          error = err;
+        });
+      }
+    }
+
+    void submitPressed() => unawaited(submit());
+
+    cancel() => close();
+
+    return CustomAlertDialog(
+      title: Text(translate('Add server to the shared list')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: nameController,
+            autofocus: true,
+            decoration: InputDecoration(hintText: translate('Server name')),
+          ).workaroundFreezeLinuxMint(),
+          const SizedBox(height: 12),
+          TextField(
+            controller: hostController,
+            decoration: const InputDecoration(hintText: 'host:port'),
+          ).workaroundFreezeLinuxMint(),
+          const SizedBox(height: 12),
+          TextField(
+            controller: keyController,
+            decoration: InputDecoration(hintText: translate('Public Key')),
+          ).workaroundFreezeLinuxMint(),
+          if (error.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(error, style: const TextStyle(color: Colors.redAccent)),
+          ],
+        ],
+      ),
+      actions: [
+        dialogButton('Cancel', onPressed: cancel, isOutline: true),
+        dialogButton(saving ? 'Saving...' : 'OK',
+            onPressed: saving ? null : submitPressed),
+      ],
+      onSubmit: saving ? null : submitPressed,
+      onCancel: cancel,
+    );
+  });
+}
+
 /// Lists address book tags and lets the user set a custom server for each.
 Future<void> showTagServersDialog() async {
   final map = loadTagRendezvousServers();
+  final servers = await fetchTagServers();
   final tags = <String>{
     ...gFFI.abModel.currentAbTags.map((e) => e.toString()),
     ...map.keys,
@@ -1002,26 +1251,35 @@ Future<void> showTagServersDialog() async {
       title: Text(translate('Server')),
       content: SizedBox(
         width: 420,
-        child: tags.isEmpty
-            ? Text(translate('Tags'))
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final tag in tags)
-                    ListTile(
-                      dense: true,
-                      title: Text(tag),
-                      subtitle: Text(_tagServerLabel(map[tag])),
-                      trailing: const Icon(Icons.edit_rounded, size: 18),
-                      onTap: () {
-                        close();
-                        editTagServerDialog(tag);
-                      },
-                    ),
-                ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${translate('Shared server list')}: ${servers.length}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            if (tags.isEmpty) Text(translate('Tags')),
+            for (final tag in tags)
+              ListTile(
+                dense: true,
+                title: Text(tag),
+                subtitle: Text(_tagServerLabel(map[tag])),
+                trailing: const Icon(Icons.edit_rounded, size: 18),
+                onTap: () {
+                  close();
+                  unawaited(editTagServerDialog(tag));
+                },
               ),
+          ],
+        ),
       ),
       actions: [
+        dialogButton('Add server to the shared list', onPressed: () {
+          close();
+          unawaited(addTagServerDialog());
+        }, isOutline: true),
         dialogButton('Close', onPressed: close, isOutline: true),
       ],
       onCancel: close,

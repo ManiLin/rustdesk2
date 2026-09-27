@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Консоль управления живёт по /managment, а не в корне: в корне сайта нет
+  // ничего, кроме пустой 404-заглушки (чтобы сервис не опознавался по адресу).
+  base: "/managment/",
   server: {
     port: 5173,
     proxy: {

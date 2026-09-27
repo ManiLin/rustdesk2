@@ -83,7 +83,7 @@ fn gen_app_build_defaults() {
 
     let desktop_ui_flavor = std::env::var("RUSTDESK_DESKTOP_UI_FLAVOR").unwrap_or_default();
     let api_server = std::env::var("RUSTDESK_API_SERVER")
-        .unwrap_or_else(|_| "https://rustdeskweb.corp.tatnefturs.ru".to_string());
+        .unwrap_or_else(|_| "https://tnremdeskapi.pxy2.tatnefturs.ru".to_string());
     let preset_address_book_name = std::env::var("RUSTDESK_PRESET_ADDRESS_BOOK_NAME")
         .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let ad_domain =

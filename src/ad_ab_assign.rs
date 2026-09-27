@@ -167,9 +167,12 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             }
         };
 
-        let status = serde_json::from_str::<Value>(&resp)
-            .ok()
-            .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(|s| s.to_owned()))
+        let response_json = serde_json::from_str::<Value>(&resp).ok();
+        let status = response_json
+            .as_ref()
+            .and_then(|v| v.get("status").or_else(|| v.get("code")))
+            .and_then(|s| s.as_str())
+            .map(str::to_owned)
             .unwrap_or_default();
         match status.as_str() {
             "assigned" => {
@@ -181,6 +184,15 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             }
             "error" => {
                 log::warn!("ad_ab_assign: portal error: {}", resp);
+            }
+            "bad_request" | "unauthorized" | "forbidden" | "service_unavailable"
+            | "bad_gateway" | "internal_server_error" => {
+                let message = response_json
+                    .as_ref()
+                    .and_then(|v| v.get("message"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&resp);
+                log::warn!("ad_ab_assign: portal error: {}", message);
             }
             other => {
                 log::warn!("ad_ab_assign: неожиданный ответ портала: {} ({})", other, resp);

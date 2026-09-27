@@ -1,11 +1,12 @@
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
+    extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, Request, State},
     handler::Handler,
-    extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State},
     http::{
         header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
         StatusCode,
     },
+    middleware::{from_fn, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -87,6 +88,9 @@ struct DeviceRow {
     computer_summary: String,
     app_version: String,
     updated_at: i64,
+    ad_status: Option<String>,
+    ad_message: Option<String>,
+    ad_updated_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,6 +123,60 @@ struct DeviceDto {
     computer_summary: String,
     app_version: String,
     updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ad_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ad_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ad_updated_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiError {
+    code: &'static str,
+    message: String,
+}
+
+/// Keep errors machine-readable across handlers and Axum extractor rejections.
+async fn json_error_middleware(request: Request<Body>, next: Next) -> Response {
+    let response = next.run(request).await;
+    let status = response.status();
+    if status.is_success() {
+        return response;
+    }
+    let bytes = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap_or_default();
+    let body_json = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+    let message = body_json
+        .as_ref()
+        .and_then(|value| value.get("message"))
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| String::from_utf8_lossy(&bytes).trim().to_owned());
+    let code = match status {
+        StatusCode::BAD_REQUEST => "bad_request",
+        StatusCode::UNPROCESSABLE_ENTITY => "validation_error",
+        StatusCode::UNAUTHORIZED => "unauthorized",
+        StatusCode::FORBIDDEN => "forbidden",
+        StatusCode::NOT_FOUND => "not_found",
+        StatusCode::METHOD_NOT_ALLOWED => "method_not_allowed",
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => "unsupported_media_type",
+        StatusCode::CONFLICT => "conflict",
+        StatusCode::PAYLOAD_TOO_LARGE => "payload_too_large",
+        StatusCode::SERVICE_UNAVAILABLE => "service_unavailable",
+        StatusCode::BAD_GATEWAY => "bad_gateway",
+        _ => "internal_server_error",
+    };
+    let message = if message.is_empty() {
+        status
+            .canonical_reason()
+            .unwrap_or("Request failed")
+            .to_owned()
+    } else {
+        message
+    };
+    (status, Json(ApiError { code, message })).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -251,19 +309,37 @@ struct ServerPayload {
     /// Public key сервера; принимаем и короткое имя `key`.
     #[serde(default, alias = "key")]
     public_key: String,
-    #[serde(default)]
-    created_by: String,
 }
 
 const SERVERS_COLUMNS: &str = "id, name, host, public_key, created_by, created_at, updated_at";
 
 /// Приводит адрес сервера к виду `host:port`; схема, путь и пробелы недопустимы.
 fn normalize_server_host(raw: &str) -> Option<String> {
-    let h = raw.trim().trim_end_matches('/');
-    if h.is_empty() || h.contains('/') || h.chars().any(char::is_whitespace) || !h.contains(':') {
+    let h = raw.trim();
+    if h.is_empty() || h.contains('/') || h.chars().any(char::is_whitespace) {
         return None;
     }
-    Some(h.to_ascii_lowercase())
+    if let Ok(address) = h.parse::<std::net::SocketAddr>() {
+        return Some(address.to_string());
+    }
+    let (hostname, port) = h.split_once(':')?;
+    if hostname.is_empty() || hostname.contains(':') {
+        return None;
+    }
+    let port = port.parse::<u16>().ok()?;
+    if port == 0
+        || hostname.starts_with('.')
+        || hostname.ends_with('.')
+        || hostname.split('.').any(|label| {
+            label.is_empty()
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        })
+    {
+        return None;
+    }
+    Some(format!("{}:{port}", hostname.to_ascii_lowercase()))
 }
 
 /// RAII-защитник: гарантирует удаление временного файла, если обработка прервалась
@@ -308,20 +384,21 @@ fn format_ts(ts: i64) -> String {
 
 const BUILDS_COLUMNS: &str = "id, flavor, platform, version, file_name, file_path, file_size, sha256, status, uploaded_at, approved_at, approved_by";
 
-fn norm_flavor(s: &str) -> &'static str {
-    if s.trim().eq_ignore_ascii_case("cashdesk") {
-        "cashdesk"
-    } else {
-        "normal"
+fn norm_flavor(s: &str) -> Option<&'static str> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "" | "normal" => Some("normal"),
+        "cashdesk" => Some("cashdesk"),
+        _ => None,
     }
 }
 
-fn norm_platform(s: &str) -> &'static str {
+fn norm_platform(s: &str) -> Option<&'static str> {
     match s.trim().to_ascii_lowercase().as_str() {
-        "linux" => "linux",
-        "macos" | "mac" | "darwin" => "macos",
-        "android" => "android",
-        _ => "windows",
+        "" | "windows" => Some("windows"),
+        "linux" => Some("linux"),
+        "macos" | "mac" | "darwin" => Some("macos"),
+        "android" => Some("android"),
+        _ => None,
     }
 }
 
@@ -407,10 +484,11 @@ async fn get_build(pool: &SqlitePool, id: i64) -> Option<BuildRow> {
 /// filename) into the builds table as an already-published normal/windows build.
 async fn migrate_legacy_release(pool: &SqlitePool, uploads_dir: &Path) {
     let legacy_path = uploads_dir.join(RUSTDESK_WINDOWS_STORED_FILENAME);
-    let Ok(Some(version)) =
-        sqlx::query_scalar::<_, String>("SELECT version FROM rustdesk_windows_release WHERE id = 1")
-            .fetch_optional(pool)
-            .await
+    let Ok(Some(version)) = sqlx::query_scalar::<_, String>(
+        "SELECT version FROM rustdesk_windows_release WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await
     else {
         return;
     };
@@ -471,6 +549,14 @@ fn verify_device_token(state: &AppState, auth_header: Option<&str>) -> bool {
     constant_time_eq(t, &state.device_token)
 }
 
+fn admin_auth_error(state: &AppState, auth_header: Option<&str>) -> Response {
+    if verify_device_token(state, auth_header) {
+        (StatusCode::FORBIDDEN, "administrator access required").into_response()
+    } else {
+        (StatusCode::UNAUTHORIZED, "unauthorized").into_response()
+    }
+}
+
 /// Constant-time byte comparison to avoid leaking the token via timing.
 fn constant_time_eq(a: &str, b: &str) -> bool {
     let a = a.as_bytes();
@@ -512,9 +598,7 @@ async fn report_handler(
     headers: axum::http::HeaderMap,
     Json(p): Json<ReportPayload>,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_device_token(&state, auth) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
@@ -523,17 +607,14 @@ async fn report_handler(
         return (StatusCode::BAD_REQUEST, "rustdesk_id required").into_response();
     }
     let os_info = p.os.clone().unwrap_or_default();
-    let computer_summary = p
-        .computer_summary
-        .clone()
-        .unwrap_or_else(|| {
-            format!(
-                "{} | {} | {}",
-                p.cpu.clone().unwrap_or_default(),
-                p.memory.clone().unwrap_or_default(),
-                p.os.clone().unwrap_or_default()
-            )
-        });
+    let computer_summary = p.computer_summary.clone().unwrap_or_else(|| {
+        format!(
+            "{} | {} | {}",
+            p.cpu.clone().unwrap_or_default(),
+            p.memory.clone().unwrap_or_default(),
+            p.os.clone().unwrap_or_default()
+        )
+    });
     let ts = now_ts();
     let r = sqlx::query(
         r#"
@@ -668,7 +749,12 @@ async fn resolve_collection(state: &AppState) -> anyhow::Result<CollectionRef> {
                     collection_id,
                 };
                 *state.collection_cache.lock().await = Some(found);
-                tracing::info!(name, user_id, collection_id, "ad assign: collection resolved");
+                tracing::info!(
+                    name,
+                    user_id,
+                    collection_id,
+                    "ad assign: collection resolved"
+                );
                 return Ok(found);
             }
         }
@@ -801,7 +887,10 @@ async fn ad_assign_handler(
             .into_response();
     }
     if !p.ad_domain.trim().is_empty()
-        && !p.ad_domain.trim().eq_ignore_ascii_case(state.ad_domain.trim())
+        && !p
+            .ad_domain
+            .trim()
+            .eq_ignore_ascii_case(state.ad_domain.trim())
     {
         record_ad_assignment(&state, &p, "skipped", "not in target AD domain").await;
         return Json(AdAssignResponse {
@@ -839,11 +928,14 @@ async fn ad_assign_handler(
             let msg = e.to_string();
             record_ad_assignment(&state, &p, "error", &msg).await;
             tracing::warn!(peer = %p.rustdesk_id, "ad assign failed: {}", msg);
-            Json(AdAssignResponse {
-                status: "error",
-                message: Some(msg),
-            })
-            .into_response()
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ApiError {
+                    code: "bad_gateway",
+                    message: msg,
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -856,11 +948,9 @@ async fn login_handler(
         return (StatusCode::UNAUTHORIZED, "bad password").into_response();
     }
     match issue_jwt(&state) {
-        Ok((token, expires_in)) => (
-            StatusCode::OK,
-            Json(LoginResponse { token, expires_in }),
-        )
-            .into_response(),
+        Ok((token, expires_in)) => {
+            (StatusCode::OK, Json(LoginResponse { token, expires_in })).into_response()
+        }
         Err(e) => {
             tracing::error!("jwt: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "token error").into_response()
@@ -872,11 +962,9 @@ async fn devices_handler(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
     let rows: Result<Vec<DeviceRow>, _> = sqlx::query_as(
         r#"
@@ -890,8 +978,12 @@ async fn devices_handler(
             COALESCE(temporary_password, '') AS temporary_password,
             COALESCE(computer_summary, '') AS computer_summary,
             COALESCE(app_version, '') AS app_version,
-            COALESCE(updated_at, 0) AS updated_at
+            COALESCE(devices.updated_at, 0) AS updated_at,
+            ad_assignments.status AS ad_status,
+            ad_assignments.message AS ad_message,
+            ad_assignments.updated_at AS ad_updated_at
         FROM devices
+        LEFT JOIN ad_assignments USING (rustdesk_id)
         ORDER BY updated_at DESC
         "#,
     )
@@ -915,6 +1007,11 @@ async fn devices_handler(
                     updated_at: chrono::DateTime::from_timestamp(r.updated_at, 0)
                         .map(|d| d.to_rfc3339())
                         .unwrap_or_default(),
+                    ad_status: r.ad_status.filter(|s| !s.is_empty()),
+                    ad_message: r.ad_message.filter(|s| !s.is_empty()),
+                    ad_updated_at: r.ad_updated_at.and_then(|ts| {
+                        chrono::DateTime::from_timestamp(ts, 0).map(|d| d.to_rfc3339())
+                    }),
                 })
                 .collect();
             Json(out).into_response()
@@ -931,11 +1028,9 @@ async fn delete_device_handler(
     headers: axum::http::HeaderMap,
     AxumPath(id): AxumPath<String>,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
     let trimmed_id = id.trim();
     let r = sqlx::query("DELETE FROM devices WHERE rustdesk_id = ?")
@@ -972,9 +1067,7 @@ async fn list_servers_handler(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_device_or_admin(&state, auth) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
@@ -995,20 +1088,22 @@ async fn list_servers_handler(
     }
 }
 
-/// Добавляет сервер в общий реестр или обновляет существующий (по `host`).
+/// Добавляет сервер в общий реестр или обновляет существующий (по `host`); только администратор.
 async fn upsert_server_handler(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     Json(p): Json<ServerPayload>,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
-    if !verify_device_or_admin(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if !verify_admin_jwt(&state, auth) {
+        return admin_auth_error(&state, auth);
     }
     let Some(host) = normalize_server_host(&p.host) else {
-        return (StatusCode::BAD_REQUEST, "invalid server host, use host:port").into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid server host, use host:port",
+        )
+            .into_response();
     };
     let public_key = p.public_key.trim();
     if public_key.is_empty() {
@@ -1034,12 +1129,22 @@ async fn upsert_server_handler(
     .bind(&name)
     .bind(&host)
     .bind(public_key)
-    .bind(p.created_by.trim())
+    .bind("admin")
     .bind(ts)
     .bind(ts)
     .execute(&state.pool)
     .await;
     if let Err(e) = r {
+        if e.as_database_error()
+            .map(|error| error.is_unique_violation())
+            .unwrap_or(false)
+        {
+            return (
+                StatusCode::CONFLICT,
+                "another server already uses this host",
+            )
+                .into_response();
+        }
         tracing::error!("upsert server: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
     }
@@ -1066,11 +1171,9 @@ async fn delete_server_handler(
     headers: axum::http::HeaderMap,
     AxumPath(id): AxumPath<i64>,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
     let r = sqlx::query("DELETE FROM servers WHERE id = ?")
         .bind(id)
@@ -1081,7 +1184,10 @@ async fn delete_server_handler(
             if res.rows_affected() == 0 {
                 (StatusCode::NOT_FOUND, "server not found").into_response()
             } else {
-                (StatusCode::OK, Json(serde_json::json!({"ok": true, "deleted": id})))
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"ok": true, "deleted": id})),
+                )
                     .into_response()
             }
         }
@@ -1108,11 +1214,9 @@ async fn admin_list_builds_handler(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
     let rows = sqlx::query_as::<_, BuildRow>(&format!(
         "SELECT {BUILDS_COLUMNS} FROM builds ORDER BY id DESC"
@@ -1167,13 +1271,6 @@ async fn handle_build_upload(
             Some("sha256") => form_sha = field.text().await.unwrap_or_default(),
             Some("file") => {
                 let filename = field.file_name().unwrap_or("build.bin").to_string();
-                if !extension_allowed(norm_platform(&form_platform), &filename) {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        "unsupported file extension for platform",
-                    )
-                        .into_response();
-                }
                 let mut file = match tokio::fs::File::create(&temp_path).await {
                     Ok(file) => file,
                     Err(e) => {
@@ -1186,7 +1283,8 @@ async fn handle_build_upload(
                         Ok(chunk) => chunk,
                         Err(e) => {
                             tracing::warn!("multipart chunk error: {}", e);
-                            return (StatusCode::BAD_REQUEST, "invalid upload chunk").into_response();
+                            return (StatusCode::BAD_REQUEST, "invalid upload chunk")
+                                .into_response();
                         }
                     };
                     let Some(chunk) = chunk else {
@@ -1194,7 +1292,8 @@ async fn handle_build_upload(
                     };
                     total_size += chunk.len() as u64;
                     if total_size > state.max_upload_bytes {
-                        return (StatusCode::PAYLOAD_TOO_LARGE, "file is too large").into_response();
+                        return (StatusCode::PAYLOAD_TOO_LARGE, "file is too large")
+                            .into_response();
                     }
                     if let Err(e) = file.write_all(&chunk).await {
                         tracing::error!("write upload file: {}", e);
@@ -1219,8 +1318,30 @@ async fn handle_build_upload(
     if version.is_empty() {
         return (StatusCode::BAD_REQUEST, "version is required").into_response();
     }
-    let flavor = norm_flavor(&form_flavor);
-    let platform = norm_platform(&form_platform);
+    if form_flavor.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "flavor is required").into_response();
+    }
+    if form_platform.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "platform is required").into_response();
+    }
+    let Some(flavor) = norm_flavor(&form_flavor) else {
+        return (StatusCode::BAD_REQUEST, "flavor must be normal or cashdesk").into_response();
+    };
+    let Some(platform) = norm_platform(&form_platform) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "platform must be windows, linux, macos, or android",
+        )
+            .into_response();
+    };
+    let original = uploaded_filename.as_deref().unwrap_or("build.bin");
+    if !extension_allowed(platform, original) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "unsupported file extension for platform",
+        )
+            .into_response();
+    }
 
     let sha = match sha256_file(&temp_path).await {
         Ok(s) => s,
@@ -1238,7 +1359,6 @@ async fn handle_build_upload(
         tracing::error!("create builds dir: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "upload error").into_response();
     }
-    let original = uploaded_filename.as_deref().unwrap_or("build.bin");
     let stored_name = format!(
         "{}-{}-{}",
         now_ts(),
@@ -1296,11 +1416,9 @@ async fn admin_upload_build_handler(
     headers: axum::http::HeaderMap,
     multipart: Multipart,
 ) -> Response {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
     handle_build_upload(&state, multipart, "admin").await
 }
@@ -1310,9 +1428,7 @@ async fn ci_upload_build_handler(
     headers: axum::http::HeaderMap,
     multipart: Multipart,
 ) -> Response {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_ci_token(&state, auth) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
@@ -1324,14 +1440,22 @@ async fn admin_approve_build_handler(
     headers: axum::http::HeaderMap,
     AxumPath(id): AxumPath<i64>,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
     let Some(build) = get_build(&state.pool, id).await else {
         return (StatusCode::NOT_FOUND, "build not found").into_response();
+    };
+    if build.status != "pending" {
+        return (StatusCode::CONFLICT, "only pending builds can be approved").into_response();
+    }
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("begin build approval: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
     };
     if let Err(e) = sqlx::query(
         "UPDATE builds SET status = 'archived' WHERE flavor = ? AND platform = ? AND status = 'published' AND id != ?",
@@ -1339,21 +1463,31 @@ async fn admin_approve_build_handler(
     .bind(&build.flavor)
     .bind(&build.platform)
     .bind(id)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await
     {
         tracing::error!("archive old builds: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
     }
-    if let Err(e) = sqlx::query(
-        "UPDATE builds SET status = 'published', approved_at = ?, approved_by = 'admin' WHERE id = ?",
+    let updated = sqlx::query(
+        "UPDATE builds SET status = 'published', approved_at = ?, approved_by = 'admin' WHERE id = ? AND status = 'pending'",
     )
     .bind(now_ts())
     .bind(id)
-    .execute(&state.pool)
-    .await
-    {
-        tracing::error!("approve build: {}", e);
+    .execute(&mut *tx)
+    .await;
+    match updated {
+        Ok(result) if result.rows_affected() == 1 => {}
+        Ok(_) => {
+            return (StatusCode::CONFLICT, "build is no longer pending").into_response();
+        }
+        Err(e) => {
+            tracing::error!("approve build: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+    if let Err(e) = tx.commit().await {
+        tracing::error!("commit build approval: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
     }
     tracing::info!(id, "build approved");
@@ -1368,19 +1502,28 @@ async fn admin_reject_build_handler(
     headers: axum::http::HeaderMap,
     AxumPath(id): AxumPath<i64>,
 ) -> impl IntoResponse {
-    let auth = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !verify_admin_jwt(&state, auth) {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        return admin_auth_error(&state, auth);
     }
-    if let Err(e) = sqlx::query("UPDATE builds SET status = 'rejected' WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-    {
-        tracing::error!("reject build: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    let result =
+        sqlx::query("UPDATE builds SET status = 'rejected' WHERE id = ? AND status = 'pending'")
+            .bind(id)
+            .execute(&state.pool)
+            .await;
+    match result {
+        Ok(result) if result.rows_affected() == 0 => {
+            return if get_build(&state.pool, id).await.is_some() {
+                (StatusCode::CONFLICT, "only pending builds can be rejected").into_response()
+            } else {
+                (StatusCode::NOT_FOUND, "build not found").into_response()
+            };
+        }
+        Err(e) => {
+            tracing::error!("reject build: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        _ => {}
     }
     match get_build(&state.pool, id).await {
         Some(b) => Json(BuildDto::from(b)).into_response(),
@@ -1392,17 +1535,23 @@ async fn public_software_update_meta_handler(
     State(state): State<Arc<AppState>>,
     Query(q): Query<BuildQuery>,
 ) -> impl IntoResponse {
-    let flavor = norm_flavor(&q.flavor);
-    let platform = norm_platform(&q.platform);
+    let Some(flavor) = norm_flavor(&q.flavor) else {
+        return (StatusCode::BAD_REQUEST, "flavor must be normal or cashdesk").into_response();
+    };
+    let Some(platform) = norm_platform(&q.platform) else {
+        return (StatusCode::BAD_REQUEST, "unsupported platform").into_response();
+    };
     let download_path = build_download_path(flavor);
     match get_published_build(&state.pool, flavor, platform).await {
-        Some(b) if tokio::fs::try_exists(&b.file_path).await.unwrap_or(false) => Json(BuildMetaDto {
-            available: true,
-            version: Some(b.version),
-            download_path,
-            sha256: (!b.sha256.is_empty()).then_some(b.sha256),
-        })
-        .into_response(),
+        Some(b) if tokio::fs::try_exists(&b.file_path).await.unwrap_or(false) => {
+            Json(BuildMetaDto {
+                available: true,
+                version: Some(b.version),
+                download_path,
+                sha256: (!b.sha256.is_empty()).then_some(b.sha256),
+            })
+            .into_response()
+        }
         _ => Json(BuildMetaDto {
             available: false,
             version: None,
@@ -1417,8 +1566,12 @@ async fn public_download_rustdesk_head_handler(
     State(state): State<Arc<AppState>>,
     Query(q): Query<BuildQuery>,
 ) -> Response {
-    let flavor = norm_flavor(&q.flavor);
-    let platform = norm_platform(&q.platform);
+    let Some(flavor) = norm_flavor(&q.flavor) else {
+        return (StatusCode::BAD_REQUEST, "flavor must be normal or cashdesk").into_response();
+    };
+    let Some(platform) = norm_platform(&q.platform) else {
+        return (StatusCode::BAD_REQUEST, "unsupported platform").into_response();
+    };
     let Some(build) = get_published_build(&state.pool, flavor, platform).await else {
         return (StatusCode::NOT_FOUND, "file not found").into_response();
     };
@@ -1447,8 +1600,12 @@ async fn public_download_rustdesk_handler(
     State(state): State<Arc<AppState>>,
     Query(q): Query<BuildQuery>,
 ) -> Response {
-    let flavor = norm_flavor(&q.flavor);
-    let platform = norm_platform(&q.platform);
+    let Some(flavor) = norm_flavor(&q.flavor) else {
+        return (StatusCode::BAD_REQUEST, "flavor must be normal or cashdesk").into_response();
+    };
+    let Some(platform) = norm_platform(&q.platform) else {
+        return (StatusCode::BAD_REQUEST, "unsupported platform").into_response();
+    };
     let Some(build) = get_published_build(&state.pool, flavor, platform).await else {
         return (StatusCode::NOT_FOUND, "file not found").into_response();
     };
@@ -1483,11 +1640,67 @@ async fn public_download_rustdesk_handler(
         })
 }
 
+fn build_app(state: Arc<AppState>, upload_body_limit: usize) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    Router::new()
+        .route("/api/v1/health", get(|| async { "ok" }))
+        .route("/api/v1/report", post(report_handler))
+        .route("/api/v1/ad/assign", post(ad_assign_handler))
+        .route("/api/v1/auth/login", post(login_handler))
+        .route("/api/v1/devices", get(devices_handler))
+        .route(
+            "/api/v1/devices/{id}",
+            axum::routing::delete(delete_device_handler),
+        )
+        .route(
+            "/api/v1/servers",
+            get(list_servers_handler).post(upsert_server_handler),
+        )
+        .route(
+            "/api/v1/admin/servers/{id}",
+            axum::routing::delete(delete_server_handler),
+        )
+        .route(
+            "/api/v1/admin/builds",
+            get(admin_list_builds_handler)
+                .post(admin_upload_build_handler.layer(DefaultBodyLimit::max(upload_body_limit))),
+        )
+        .route(
+            "/api/v1/admin/builds/{id}/approve",
+            post(admin_approve_build_handler),
+        )
+        .route(
+            "/api/v1/admin/builds/{id}/reject",
+            post(admin_reject_build_handler),
+        )
+        .route(
+            "/api/v1/ci/builds",
+            post(ci_upload_build_handler.layer(DefaultBodyLimit::max(upload_body_limit))),
+        )
+        .route(
+            "/api/v1/downloads/rustdesk/windows/meta",
+            get(public_software_update_meta_handler),
+        )
+        .route(
+            "/api/v1/downloads/rustdesk/windows/latest",
+            get(public_download_rustdesk_handler).head(public_download_rustdesk_head_handler),
+        )
+        .layer(from_fn(json_error_middleware))
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+        .with_state(state)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            env::var("RUST_LOG").unwrap_or_else(|_| "inventory_portal_api=info,tower_http=info".into()),
+            env::var("RUST_LOG")
+                .unwrap_or_else(|_| "inventory_portal_api=info,tower_http=info".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -1518,12 +1731,11 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES);
     let ci_upload_token = env::var("CI_UPLOAD_TOKEN").unwrap_or_default();
     let rustdeskweb_api_url = env::var("RUSTDESKWEB_API_URL")
-        .unwrap_or_else(|_| "https://rustdeskweb.corp.tatnefturs.ru".to_string());
+        .unwrap_or_else(|_| "https://tnremdeskapi.pxy2.tatnefturs.ru".to_string());
     let rustdeskweb_api_token = env::var("RUSTDESKWEB_API_TOKEN").unwrap_or_default();
-    let ad_domain =
-        env::var("AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
-    let preset_address_book_name =
-        env::var("PRESET_ADDRESS_BOOK_NAME").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
+    let ad_domain = env::var("AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
+    let preset_address_book_name = env::var("PRESET_ADDRESS_BOOK_NAME")
+        .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     if rustdeskweb_api_token.is_empty() {
         tracing::warn!("RUSTDESKWEB_API_TOKEN not set: AD address book assignment is disabled");
     }
@@ -1656,58 +1868,7 @@ async fn main() -> anyhow::Result<()> {
     // Axum по умолчанию режет тело запроса для Multipart (~2 МБ) — без этого большой rustdesk.exe не доходит до хендлера.
     let upload_body_limit = usize::try_from(max_upload_bytes).unwrap_or(usize::MAX);
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let app = Router::new()
-        .route("/api/v1/health", get(|| async { "ok" }))
-        .route("/api/v1/report", post(report_handler))
-        .route("/api/v1/ad/assign", post(ad_assign_handler))
-        .route("/api/v1/auth/login", post(login_handler))
-        .route("/api/v1/devices", get(devices_handler))
-        .route(
-            "/api/v1/devices/{id}",
-            axum::routing::delete(delete_device_handler),
-        )
-        .route(
-            "/api/v1/servers",
-            get(list_servers_handler).post(upsert_server_handler),
-        )
-        .route(
-            "/api/v1/admin/servers/{id}",
-            axum::routing::delete(delete_server_handler),
-        )
-        .route(
-            "/api/v1/admin/builds",
-            get(admin_list_builds_handler).post(
-                admin_upload_build_handler.layer(DefaultBodyLimit::max(upload_body_limit)),
-            ),
-        )
-        .route(
-            "/api/v1/admin/builds/{id}/approve",
-            post(admin_approve_build_handler),
-        )
-        .route(
-            "/api/v1/admin/builds/{id}/reject",
-            post(admin_reject_build_handler),
-        )
-        .route(
-            "/api/v1/ci/builds",
-            post(ci_upload_build_handler.layer(DefaultBodyLimit::max(upload_body_limit))),
-        )
-        .route(
-            "/api/v1/downloads/rustdesk/windows/meta",
-            get(public_software_update_meta_handler),
-        )
-        .route(
-            "/api/v1/downloads/rustdesk/windows/latest",
-            get(public_download_rustdesk_handler).head(public_download_rustdesk_head_handler),
-        )
-        .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .with_state(state);
+    let app = build_app(state, upload_body_limit);
 
     let addr: SocketAddr = env::var("BIND_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
@@ -1716,4 +1877,272 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        admin_auth_error, build_app, issue_jwt, norm_flavor, norm_platform, normalize_server_host,
+        AppState, Body, Request, SqlitePoolOptions, StatusCode,
+    };
+    use axum::body::to_bytes;
+    use serde_json::{json, Value};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    async fn test_state() -> Arc<AppState> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory database");
+        sqlx::query(
+            "CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL DEFAULT '', host TEXT NOT NULL UNIQUE, public_key TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("servers table");
+        sqlx::query(
+            "CREATE TABLE builds (id INTEGER PRIMARY KEY AUTOINCREMENT, flavor TEXT NOT NULL DEFAULT 'normal', platform TEXT NOT NULL DEFAULT 'windows', version TEXT NOT NULL, file_name TEXT NOT NULL DEFAULT '', file_path TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', uploaded_at INTEGER NOT NULL, approved_at INTEGER, approved_by TEXT NOT NULL DEFAULT '')",
+        )
+        .execute(&pool)
+        .await
+        .expect("builds table");
+        sqlx::query(
+            "CREATE TABLE devices (rustdesk_id TEXT PRIMARY KEY, hostname TEXT NOT NULL DEFAULT '', os_info TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', ip_public TEXT NOT NULL DEFAULT '', ip_local TEXT NOT NULL DEFAULT '', temporary_password TEXT NOT NULL DEFAULT '', computer_summary TEXT NOT NULL DEFAULT '', app_version TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("devices table");
+        sqlx::query(
+            "CREATE TABLE ad_assignments (rustdesk_id TEXT PRIMARY KEY, alias TEXT NOT NULL DEFAULT '', ad_user TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("AD assignments table");
+        Arc::new(AppState {
+            pool,
+            device_token: "device-secret".into(),
+            admin_password: "admin-secret".into(),
+            jwt_secret: "jwt-secret".into(),
+            uploads_dir: PathBuf::new(),
+            max_upload_bytes: 1024,
+            ci_upload_token: String::new(),
+            rustdeskweb_api_url: String::new(),
+            rustdeskweb_api_token: String::new(),
+            ad_domain: String::new(),
+            preset_address_book_name: String::new(),
+            collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        })
+    }
+
+    async fn response_json(response: axum::response::Response) -> Value {
+        let body = to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("response body");
+        serde_json::from_slice(&body).expect("JSON response")
+    }
+
+    #[test]
+    fn server_host_requires_a_valid_host_and_port() {
+        assert_eq!(
+            normalize_server_host(" RustDesk.Example.com:21116 "),
+            Some("rustdesk.example.com:21116".into())
+        );
+        assert_eq!(
+            normalize_server_host("[2001:db8::1]:21116"),
+            Some("[2001:db8::1]:21116".into())
+        );
+        assert_eq!(normalize_server_host("example.com"), None);
+        assert_eq!(normalize_server_host("example.com:0"), None);
+        assert_eq!(normalize_server_host("example.com:70000"), None);
+        assert_eq!(normalize_server_host("https://example.com:21116"), None);
+        assert_eq!(normalize_server_host("bad host:21116"), None);
+    }
+
+    #[test]
+    fn build_query_values_are_normalized_or_rejected() {
+        assert_eq!(norm_flavor(" CASHDESK "), Some("cashdesk"));
+        assert_eq!(norm_flavor(""), Some("normal"));
+        assert_eq!(norm_flavor("staging"), None);
+        assert_eq!(norm_platform("Darwin"), Some("macos"));
+        assert_eq!(norm_platform(""), Some("windows"));
+        assert_eq!(norm_platform("freebsd"), None);
+    }
+
+    #[tokio::test]
+    async fn device_token_is_forbidden_from_admin_routes() {
+        let state = test_state().await;
+        assert_eq!(
+            admin_auth_error(&state, Some("Bearer device-secret")).status(),
+            super::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            admin_auth_error(&state, Some("Bearer wrong-secret")).status(),
+            super::StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn server_registry_api_preserves_read_access_and_restricts_writes() {
+        let state = test_state().await;
+        let app = build_app(state.clone(), 1024);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/servers")
+                    .header("authorization", "Bearer device-secret")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response_json(response).await, json!([]));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/servers")
+                    .header("authorization", "Bearer device-secret")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"name":"Branch","host":"branch.example:21116","public_key":"key"}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response_json(response).await["code"], "forbidden");
+
+        let (admin_token, _) = issue_jwt(&state).expect("admin JWT");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/servers")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"host":"not-a-host","public_key":"key"}"#))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response_json(response).await["code"], "bad_request");
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/servers")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"name":"Branch","host":"BRANCH.example:21116","public_key":"key"}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(response).await["host"],
+            "branch.example:21116"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_status_changes_only_allow_pending_transitions() {
+        let state = test_state().await;
+        for (id, status) in [(1, "published"), (2, "pending")] {
+            sqlx::query("INSERT INTO builds (id, flavor, platform, version, status, uploaded_at) VALUES (?, 'normal', 'windows', ?, ?, 1)")
+                .bind(id)
+                .bind(format!("1.4.{id}"))
+                .bind(status)
+                .execute(&state.pool)
+                .await
+                .expect("insert build");
+        }
+        let (admin_token, _) = issue_jwt(&state).expect("admin JWT");
+        let app = build_app(state.clone(), 1024);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/admin/builds/1/approve")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(response_json(response).await["code"], "conflict");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/admin/builds/2/approve")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response_json(response).await["status"], "published");
+
+        let statuses: Vec<(i64, String)> =
+            sqlx::query_as("SELECT id, status FROM builds ORDER BY id")
+                .fetch_all(&state.pool)
+                .await
+                .expect("build statuses");
+        assert_eq!(
+            statuses,
+            vec![(1, "archived".into()), (2, "published".into())]
+        );
+    }
+
+    #[tokio::test]
+    async fn device_list_includes_ad_assignment_result_when_present() {
+        let state = test_state().await;
+        sqlx::query("INSERT INTO devices (rustdesk_id, hostname, updated_at) VALUES ('device-1', 'workstation', 1), ('device-2', 'laptop', 1)")
+            .execute(&state.pool)
+            .await
+            .expect("insert devices");
+        sqlx::query("INSERT INTO ad_assignments (rustdesk_id, alias, ad_user, status, message, updated_at) VALUES ('device-1', 'Workstation', 'CORP\\\\user', 'error', 'upstream unavailable', 2)")
+            .execute(&state.pool)
+            .await
+            .expect("insert AD assignment");
+        let (admin_token, _) = issue_jwt(&state).expect("admin JWT");
+        let app = build_app(state, 1024);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/devices")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let devices = response_json(response).await;
+        assert_eq!(devices[0]["ad_status"], "error");
+        assert_eq!(devices[0]["ad_message"], "upstream unavailable");
+        assert_eq!(devices[0]["ad_updated_at"], "1970-01-01T00:00:02+00:00");
+        assert!(devices[1].get("ad_status").is_none());
+    }
 }

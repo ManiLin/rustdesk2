@@ -22,3 +22,6 @@ anyhow = "1"
 tokio-util = { version = "0.7.19", features = ["io"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sha2 = "0.10"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

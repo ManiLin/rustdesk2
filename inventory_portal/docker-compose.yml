@@ -11,7 +11,7 @@ services:
       # Token for CI uploads (falls back to INVENTORY_DEVICE_TOKEN when empty).
       CI_UPLOAD_TOKEN: ${CI_UPLOAD_TOKEN:-}
       # AD -> shared address book (rustdeskweb token lives only here, never on clients).
-      RUSTDESKWEB_API_URL: ${RUSTDESKWEB_API_URL:-https://rustdeskweb.corp.tatnefturs.ru}
+      RUSTDESKWEB_API_URL: ${RUSTDESKWEB_API_URL:-https://tnremdeskapi.pxy2.tatnefturs.ru}
       RUSTDESKWEB_API_TOKEN: ${RUSTDESKWEB_API_TOKEN}
       AD_DOMAIN: ${AD_DOMAIN:-corp.tatnefturs.tatar}
       PRESET_ADDRESS_BOOK_NAME: ${PRESET_ADDRESS_BOOK_NAME:-corp.tatnefturs.tatar}

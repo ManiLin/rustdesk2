@@ -10,12 +10,27 @@ export INVENTORY_DEVICE_TOKEN="$(openssl rand -hex 24)"
 export ADMIN_PASSWORD="$(openssl rand -hex 16)"
 export JWT_SECRET="$(openssl rand -hex 32)"
 # AD -> адресная книга (токен rustdeskweb живёт только на портале)
-export RUSTDESKWEB_API_URL="https://rustdeskweb.corp.tatnefturs.ru"
+export RUSTDESKWEB_API_URL="https://tnremdeskapi.pxy2.tatnefturs.ru"
 export RUSTDESKWEB_API_TOKEN="<admin api-token rustdeskweb>"
 docker compose up -d --build
 ```
 
-Веб: `http://localhost:8088` (порт задаётся переменной `PORT`).
+Веб: `http://localhost:1026` (порт задаётся переменной `PORT`, по умолчанию `1026`).
+
+Адреса: снаружи сервис ничем себя не выдаёт — в корне и по любым неизвестным
+путям отдаётся пустая 404-заглушка (`frontend/404.html`), версия nginx скрыта
+(`server_tokens off`).
+
+| Адрес | Что отдаётся |
+| --- | --- |
+| `/` | пустая 404-заглушка (никакого сайта в корне нет) |
+| `/managment` | консоль управления (SPA) — единственная страница |
+| `/management` | редирект на `/managment/` (защита от опечатки) |
+| `/api/v1/...` | API портала, которое дёргают клиенты (nginx проксирует в backend `:8080`) |
+| всё остальное | 404 без опознавательных признаков |
+
+Консоль собрана с `base: "/managment/"`, поэтому в dev-режиме она открывается по
+`http://localhost:5173/managment/` (`npm run dev` в `frontend/`).
 
 ## AD → адресная книга
 
@@ -59,13 +74,15 @@ docker compose up -d --build
 ## GitHub Actions
 
 У **Flutter Nightly Build** и **Flutter Tag Build** при ручном запуске есть поле **inventory-report-url**. Оно передаётся в сборку как `INVENTORY_REPORT_URL` и **вшивается в клиент**.  
-По расписанию или при push тега поле пустое — URL в бинарник не попадает.
+По расписанию или при push тега поле пустое — клиент использует встроенный адрес
+по умолчанию `https://tnremdeskapi.pxy2.tatnefturs.ru`.
 
 Приоритет на клиенте: значение из **`RustDesk2.toml`** (`inventory-report-url`), если пусто — зашитый при сборке URL.
 
 Можно указать только базу, например `http://192.168.0.213:1026` или с слэшем в конце — клиент сам допишет путь **`/api/v1/report`**.
 
-Локальная сборка: `INVENTORY_REPORT_URL='https://…' cargo build …`
+Локальная сборка может переопределить адрес: `INVENTORY_REPORT_URL='https://…' cargo build …`.
+Если переменная не задана, используется тот же встроенный адрес по умолчанию.
 
 ## Общий реестр доп. серверов для тегов адресной книги
 
@@ -79,9 +96,17 @@ RustDesk-сервер, если для тега задан сервер: исп�
 - **Привязка «тег → сервер» остаётся локальной** (опция `tag-rendezvous-servers`)
   и задаётся в клиенте: правый клик по тегу → **Server** → сервер выбирается из
   выпадающего списка, public key подставляется автоматически.
-- Добавить сервер в общий список можно из клиента (кнопка **Add server to the
-  shared list** в том же диалоге) или в админ-UI портала (секция
-  «RustDesk-серверы»); в реестре ключ обязателен.
+- Общий список серверов меняет только администратор в разделе «Серверы» портала;
+  клиенты могут читать список и кэшировать его локально. Публичный ключ обязателен.
+
+## Web-интерфейс
+
+Админ-портал разделён на разделы «Устройства», «Сборки» и «Серверы» и использует
+компоненты Google Material Design 3 из закреплённой версии Material Web `2.5.0`.
+Светлая тема используется по умолчанию; тёмная включается по настройке системы.
+Временный пароль устройства скрыт, пока администратор явно его не раскроет.
+Material Web сейчас находится в режиме поддержки; версия закреплена, чтобы
+обновление компонентов было осознанным ([статус проекта](https://github.com/material-components/material-web)).
 
 ## Настройка RustDesk
 
@@ -113,18 +138,25 @@ RustDesk-сервер, если для тега задан сервер: исп�
 
 ## API
 
+Полная спецификация OpenAPI 3.1 находится в [`openapi.yaml`](openapi.yaml).
+Все ответы с HTTP-ошибками имеют JSON-форму
+`{ "code": "...", "message": "..." }`. Код `401` означает отсутствующие
+или неверные данные входа; `403` — корректный токен устройства без прав
+администратора; `409` — действие невозможно для текущего статуса сборки.
+В успешных ответах v1 сохраняются действующие форматы.
+
 - `POST /api/v1/report` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`, тело JSON (см. `inventory_sync.rs`).
 - `POST /api/v1/ad/assign` — заголовок `Authorization: Bearer <INVEN...N>`, AD → общая адресная книга (см. раздел выше).
 - `GET /api/v1/servers` — **общий реестр дополнительных RustDesk-серверов** (Bearer device-токен клиента или админский JWT): `[{id, name, host, public_key, …}]`.
-- `POST /api/v1/servers` — добавить/обновить сервер в реестре (`{name, host, public_key}`); принимается тот же device-токен (любой клиент) или JWT. Ключ обязателен, `host` — в виде `host:port`.
+- `POST /api/v1/servers` — добавить/обновить сервер в реестре (`{name, host, public_key}`); только JWT администратора. Device-токен получает `403`. Ключ обязателен, `host` — корректный `host:port`.
 - `DELETE /api/v1/admin/servers/{id}` — удалить сервер из реестра (JWT).
 - `POST /api/v1/auth/login` — `{ "password": "<ADMIN_PASSWORD>" }` → JWT.
-- `GET /api/v1/devices` — заголовок `Authorization: Bearer ***
-- `DELETE /api/v1/devices/{id}` — заголовок `Authorization: Bearer *** — удаление устройства из базы.
+- `GET /api/v1/devices` — список устройств для администратора; дополнительно содержит `ad_status`, `ad_message`, `ad_updated_at`, когда для устройства есть результат назначения.
+- `DELETE /api/v1/devices/{id}` — удалить устройство из базы (JWT администратора).
 - `GET /api/v1/admin/builds` — список сборок (JWT).
 - `POST /api/v1/admin/builds` — загрузка сборки (JWT, `multipart/form-data`: `version`, `flavor`, `platform`, `file`) → `pending`.
-- `POST /api/v1/admin/builds/{id}/approve` — подтвердить сборку (JWT).
-- `POST /api/v1/admin/builds/{id}/reject` — отклонить сборку (JWT).
+- `POST /api/v1/admin/builds/{id}/approve` — подтвердить сборку со статусом `pending`; предыдущая публикация для той же платформы и flavor архивируется (JWT).
+- `POST /api/v1/admin/builds/{id}/reject` — отклонить сборку со статусом `pending` (JWT).
 - `POST /api/v1/ci/builds` — загрузка из CI (Bearer `CI_UPLOAD_TOKEN` или `INVENTORY_DEVICE_TOKEN`) → `pending`.
 - `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk` — публичный JSON для клиентского автообновления.
 - `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...` — публичное скачивание подтверждённой сборки (поддерживает `HEAD`).

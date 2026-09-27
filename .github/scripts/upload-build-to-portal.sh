@@ -24,11 +24,25 @@ if [ ! -f "$FILE" ]; then
 fi
 
 echo "upload-build-to-portal: uploading $FILE (version=$VERSION flavor=$FLAVOR platform=$PLATFORM)"
-curl -fsS -X POST "${PORTAL_URL%/}/api/v1/ci/builds" \
+response="$(curl -sS -X POST "${PORTAL_URL%/}/api/v1/ci/builds" \
   -H "Authorization: Bearer ${TOKEN}" \
   -F "version=${VERSION}" \
   -F "flavor=${FLAVOR}" \
   -F "platform=${PLATFORM}" \
-  -F "file=@${FILE}"
-echo
+  -F "file=@${FILE}" \
+  --write-out $'\n%{http_code}')"
+http_code="${response##*$'\n'}"
+response_body="${response%$'\n'*}"
+if [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+  error_message="$response_body"
+  if command -v jq >/dev/null 2>&1; then
+    parsed_message="$(printf '%s' "$response_body" | jq -r '.message // .code // empty' 2>/dev/null || true)"
+    if [[ -n "$parsed_message" ]]; then
+      error_message="$parsed_message"
+    fi
+  fi
+  echo "upload-build-to-portal: HTTP ${http_code}: ${error_message}" >&2
+  exit 1
+fi
+printf '%s\n' "$response_body"
 echo "upload-build-to-portal: done (status=pending, awaiting admin approval)"

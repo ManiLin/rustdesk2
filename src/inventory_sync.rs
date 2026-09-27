@@ -109,25 +109,43 @@ async fn send_report(url: &str, token: &str) -> hbb_common::ResultType<()> {
     let auth = format!("Authorization: Bearer {}", token);
     let resp = crate::post_request(url.to_owned(), body, &auth).await?;
     let r = resp.trim();
-    if r == "unauthorized" {
+    let parsed = serde_json::from_str::<serde_json::Value>(r).ok();
+    let error_code = parsed
+        .as_ref()
+        .and_then(|v| v.get("code"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let error_message = parsed
+        .as_ref()
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(r);
+    if r == "unauthorized" || error_code == "unauthorized" {
         log::warn!(
             "inventory portal: 401 unauthorized — токен на клиенте не совпадает с INVENTORY_DEVICE_TOKEN на сервере \
              (по умолчанию должен совпадать с RS_PUB_KEY в вашей сборке hbb_common)."
         );
         return Ok(());
     }
-    if r.contains("\"ok\"") && r.contains("true") {
+    if parsed
+        .as_ref()
+        .and_then(|v| v.get("ok"))
+        .and_then(|v| v.as_bool())
+        == Some(true)
+    {
         log::info!(
             "inventory portal: отчёт принят сервером (rustdesk_id={})",
             rustdesk_id
         );
-    } else if r == "db error" {
+    } else if r == "db error" || error_code == "internal_server_error" {
         log::warn!("inventory portal: сервер вернул ошибку БД");
     } else {
-        log::warn!(
-            "inventory portal: неожиданный ответ (проверьте URL до /api/v1/report): {}",
-            if r.len() > 240 { format!("{}…", &r[..240]) } else { r.to_owned() }
-        );
+        let preview = if error_message.chars().count() > 240 {
+            format!("{}…", error_message.chars().take(240).collect::<String>())
+        } else {
+            error_message.to_owned()
+        };
+        log::warn!("inventory portal: неожиданный ответ (проверьте URL до /api/v1/report): {}", preview);
     }
     Ok(())
 }

@@ -984,37 +984,20 @@ Future<List<TagServerEntry>> fetchTagServers() async {
         return list;
       }
     }
-    debugPrint('tag servers: HTTP ${resp.statusCode}');
+    var error = '';
+    try {
+      final body = jsonDecode(utf8.decode(resp.bodyBytes));
+      if (body is Map) error = (body['message'] ?? body['code'] ?? '').toString();
+    } catch (_) {
+      error = utf8.decode(resp.bodyBytes, allowMalformed: true).trim();
+    }
+    if (error.isNotEmpty) {
+      debugPrint('tag servers: HTTP ${resp.statusCode}: $error');
+    }
   } catch (e) {
     debugPrint('tag servers: $e');
   }
   return loadCachedTagServers();
-}
-
-/// Публикует сервер в общий реестр портала (он сразу виден всем клиентам).
-/// Возвращает текст ошибки или null при успехе.
-Future<String?> publishTagServer(
-    {required String name, required String host, required String key}) async {
-  final base = _portalBase();
-  if (base.isEmpty) return translate('Inventory portal is not configured');
-  try {
-    final resp = await http.post(
-      Uri.parse('$base/api/v1/servers'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${_portalToken()}',
-      },
-      body: jsonEncode({'name': name, 'host': host, 'public_key': key}),
-    );
-    if (resp.statusCode == 200) return null;
-    if (resp.statusCode == 401) {
-      return translate('Inventory portal token is invalid');
-    }
-    final body = resp.body.trim();
-    return body.isEmpty ? 'HTTP ${resp.statusCode}' : body;
-  } catch (e) {
-    return e.toString();
-  }
 }
 
 /// Loads the local `tag -> {server, key}` mapping used to connect peers of a
@@ -1156,87 +1139,6 @@ Future<void> editTagServerDialog(String tag) async {
   });
 }
 
-/// Публикует сервер в общий реестр портала, чтобы он появился в выпадающем
-/// списке у всех клиентов.
-Future<void> addTagServerDialog() async {
-  final nameController = TextEditingController();
-  final hostController = TextEditingController();
-  final keyController = TextEditingController();
-  var saving = false;
-  var error = '';
-  gFFI.dialogManager.show((setState, close, context) {
-    Future<void> submit() async {
-      if (saving) return;
-      final host = hostController.text.trim();
-      final key = keyController.text.trim();
-      if (host.isEmpty || !host.contains(':')) {
-        setState(() => error = translate('Specify the server as host:port'));
-        return;
-      }
-      if (key.isEmpty) {
-        setState(() =>
-            error = translate('Public key is required for the custom server'));
-        return;
-      }
-      setState(() {
-        saving = true;
-        error = '';
-      });
-      final err = await publishTagServer(
-          name: nameController.text.trim(), host: host, key: key);
-      if (err == null) {
-        showToast(translate('Server added to the shared list'));
-        close();
-      } else {
-        setState(() {
-          saving = false;
-          error = err;
-        });
-      }
-    }
-
-    void submitPressed() => unawaited(submit());
-
-    cancel() => close();
-
-    return CustomAlertDialog(
-      title: Text(translate('Add server to the shared list')),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: nameController,
-            autofocus: true,
-            decoration: InputDecoration(hintText: translate('Server name')),
-          ).workaroundFreezeLinuxMint(),
-          const SizedBox(height: 12),
-          TextField(
-            controller: hostController,
-            decoration: const InputDecoration(hintText: 'host:port'),
-          ).workaroundFreezeLinuxMint(),
-          const SizedBox(height: 12),
-          TextField(
-            controller: keyController,
-            decoration: InputDecoration(hintText: translate('Public Key')),
-          ).workaroundFreezeLinuxMint(),
-          if (error.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(error, style: const TextStyle(color: Colors.redAccent)),
-          ],
-        ],
-      ),
-      actions: [
-        dialogButton('Cancel', onPressed: cancel, isOutline: true),
-        dialogButton(saving ? 'Saving...' : 'OK',
-            onPressed: saving ? null : submitPressed),
-      ],
-      onSubmit: saving ? null : submitPressed,
-      onCancel: cancel,
-    );
-  });
-}
-
 /// Lists address book tags and lets the user set a custom server for each.
 Future<void> showTagServersDialog() async {
   final map = loadTagRendezvousServers();
@@ -1276,10 +1178,6 @@ Future<void> showTagServersDialog() async {
         ),
       ),
       actions: [
-        dialogButton('Add server to the shared list', onPressed: () {
-          close();
-          unawaited(addTagServerDialog());
-        }, isOutline: true),
         dialogButton('Close', onPressed: close, isOutline: true),
       ],
       onCancel: close,

@@ -7,5 +7,7 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+# Консоль управления живёт в /managment; в корне сайта нет — только пустая 404-заглушка.
+COPY --from=build /app/dist /usr/share/nginx/html/managment
+COPY 404.html /usr/share/nginx/html/404.html
 EXPOSE 80

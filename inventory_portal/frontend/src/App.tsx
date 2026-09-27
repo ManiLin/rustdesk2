@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
 
 type Device = {
   rustdesk_id: string;
@@ -11,6 +12,9 @@ type Device = {
   computer_summary: string;
   app_version: string;
   updated_at: string;
+  ad_status?: string;
+  ad_message?: string;
+  ad_updated_at?: string;
 };
 
 type Build = {
@@ -37,847 +41,539 @@ type TagServer = {
   updated_at: string;
 };
 
-const TOKEN_KEY = "inv_portal_jwt";
+type Page = "devices" | "builds" | "servers";
+type ApiFailure = { code?: string; message?: string };
+type Confirmation = { title: string; message: string; actionLabel: string; run: () => Promise<void> };
 
+const TOKEN_KEY = "inv_portal_jwt";
 const FLAVORS = ["normal", "cashdesk"];
 const PLATFORMS = ["windows", "linux", "macos", "android"];
+const PAGE_INFO: Record<Page, { title: string; description: string }> = {
+  devices: {
+    title: "Устройства",
+    description: "Компьютеры, которые отправляют отчёты в портал.",
+  },
+  builds: {
+    title: "Сборки",
+    description: "Загружайте сборки и публикуйте их после проверки.",
+  },
+  servers: {
+    title: "Серверы RustDesk",
+    description: "Общий список серверов, доступный клиентам RustDesk.",
+  },
+};
 
-function apiBase(): string {
-  return import.meta.env.PROD ? "" : "";
+function apiErrorMessage(body: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(body) as ApiFailure;
+    const knownMessages: Record<string, string> = {
+      "bad password": "Неверный пароль администратора.",
+      unauthorized: "Сессия завершена. Войдите в портал заново.",
+      "administrator access required": "Это действие доступно только администратору.",
+      "invalid server host, use host:port": "Введите адрес сервера в формате host:port.",
+      "public key is required": "Укажите публичный ключ сервера.",
+      "another server already uses this host": "Этот адрес уже занят другим сервером.",
+      "only pending builds can be approved": "Подтвердить можно только сборку, ожидающую проверки.",
+      "only pending builds can be rejected": "Отклонить можно только сборку, ожидающую проверки.",
+      "build is no longer pending": "Статус сборки уже изменился. Обновите список.",
+      "file is too large": "Файл превышает допустимый размер.",
+      "file is required": "Выберите файл сборки.",
+      "device not found": "Устройство уже удалено или не найдено.",
+      "server not found": "Сервер уже удалён или не найден.",
+      "build not found": "Сборка не найдена.",
+      "unsupported platform": "Выберите поддерживаемую платформу.",
+      "flavor must be normal or cashdesk": "Выберите канал normal или cashdesk.",
+      "platform must be windows, linux, macos, or android": "Выберите поддерживаемую платформу.",
+      "unsupported file extension for platform": "Формат файла не подходит для выбранной платформы.",
+      "version is required": "Укажите версию сборки.",
+      "flavor is required": "Выберите канал сборки.",
+      "platform is required": "Выберите платформу сборки.",
+      "sha256 mismatch": "Контрольная сумма файла не совпала.",
+      "db error": "Не удалось сохранить данные. Повторите попытку позже.",
+    };
+    if (parsed.message) return knownMessages[parsed.message] ?? parsed.message;
+  } catch {
+    // Older portal versions returned plain text errors.
+  }
+  return body.trim() || fallback;
 }
 
-function formatBytes(value: number | null): string {
+async function responseError(response: Response, fallback: string): Promise<string> {
+  return apiErrorMessage(await response.text(), fallback);
+}
+
+function formatBytes(value: number): string {
   if (!value || value <= 0) return "—";
   const units = ["Б", "КБ", "МБ", "ГБ"];
   let size = value;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
     size /= 1024;
-    unitIndex += 1;
+    unit += 1;
   }
-  return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+  return `${size >= 10 || unit === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unit]}`;
 }
 
-function statusLabel(status: string): string {
+function formatDate(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ru-RU");
+}
+
+function formatStatus(status?: string): { label: string; kind: string } {
   switch (status) {
-    case "published":
-      return "Опубликована";
-    case "pending":
-      return "Ожидает";
-    case "rejected":
-      return "Отклонена";
-    case "archived":
-      return "Архив";
-    default:
-      return status;
+    case "published": return { label: "Опубликована", kind: "success" };
+    case "pending": return { label: "Ожидает проверки", kind: "warning" };
+    case "rejected": return { label: "Отклонена", kind: "error" };
+    case "archived": return { label: "В архиве", kind: "neutral" };
+    case "assigned": return { label: "Добавлен", kind: "success" };
+    case "skipped": return { label: "Пропущен", kind: "neutral" };
+    case "error": return { label: "Ошибка", kind: "error" };
+    default: return { label: "Не назначался", kind: "neutral" };
   }
 }
 
-function IconMonitor() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-      <rect x="3" y="4" width="18" height="12" rx="2" />
-      <path d="M8 20h8M12 16v4" strokeLinecap="round" />
-    </svg>
-  );
+function FilledButton(props: React.HTMLAttributes<HTMLElement> & { disabled?: boolean; type?: string }) {
+  return <md-filled-button {...props}>{props.children}</md-filled-button>;
 }
 
-function IconSearch() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <circle cx="11" cy="11" r="7" />
-      <path d="M20 20l-3-3" strokeLinecap="round" />
-    </svg>
-  );
+function OutlinedButton(props: React.HTMLAttributes<HTMLElement> & { disabled?: boolean; type?: string }) {
+  return <md-outlined-button {...props}>{props.children}</md-outlined-button>;
 }
 
-function IconUpload() {
-  return (
-    <svg className="fluent-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M12 16V4m0 0l4 4m-4-4L8 8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" strokeLinecap="round" />
-    </svg>
-  );
+function StatusPill({ status }: { status?: string }) {
+  const value = formatStatus(status);
+  return <span className={`status-pill status-${value.kind}`}>{value.label}</span>;
+}
+
+function Alert({ kind = "error", children }: { kind?: "error" | "success" | "info"; children: React.ReactNode }) {
+  return <div className={`alert alert-${kind}`} role={kind === "error" ? "alert" : "status"}>{children}</div>;
+}
+
+function Loading({ label = "Загрузка…" }: { label?: string }) {
+  return <div className="loading-state"><md-circular-progress indeterminate aria-label={label} />{label}</div>;
+}
+
+function NavigationIcon({ page }: { page: Page }) {
+  const paths: Record<Page, React.ReactNode> = {
+    devices: <><rect x="3" y="4" width="8" height="7" rx="1" /><rect x="13" y="4" width="8" height="7" rx="1" /><rect x="3" y="13" width="8" height="7" rx="1" /><rect x="13" y="13" width="8" height="7" rx="1" /></>,
+    builds: <><path d="M12 16V4m0 0 4 4m-4-4L8 8" /><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" /></>,
+    servers: <><rect x="3" y="4" width="18" height="6" rx="2" /><rect x="3" y="14" width="18" height="6" rx="2" /><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" /></>,
+  };
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[page]}</svg>;
 }
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(() =>
-    typeof localStorage !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
-  );
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [page, setPage] = useState<Page>("devices");
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const confirmDialog = useRef<HTMLDialogElement>(null);
   const [password, setPassword] = useState("");
-  const [loginErr, setLoginErr] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
-  const [listErr, setListErr] = useState("");
-  const [q, setQ] = useState("");
-
   const [builds, setBuilds] = useState<Build[]>([]);
-  const [buildsErr, setBuildsErr] = useState("");
-  const [buildsMsg, setBuildsMsg] = useState("");
+  const [servers, setServers] = useState<TagServer[]>([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState<string[]>([]);
   const [buildVersion, setBuildVersion] = useState("");
   const [buildFlavor, setBuildFlavor] = useState("normal");
   const [buildPlatform, setBuildPlatform] = useState("windows");
-  const [buildUploading, setBuildUploading] = useState(false);
-  const [selectedBuildName, setSelectedBuildName] = useState("");
-  const [deletingId, setDeletingId] = useState("");
-
-  const [servers, setServers] = useState<TagServer[]>([]);
-  const [serversErr, setServersErr] = useState("");
-  const [serversMsg, setServersMsg] = useState("");
+  const [buildFile, setBuildFile] = useState<File | null>(null);
   const [serverName, setServerName] = useState("");
   const [serverHost, setServerHost] = useState("");
   const [serverKey, setServerKey] = useState("");
-  const [serverSaving, setServerSaving] = useState(false);
-  const [deletingServerId, setDeletingServerId] = useState(0);
-  const buildFileInputRef = useRef<HTMLInputElement>(null);
+  const [editingServer, setEditingServer] = useState<number | null>(null);
+
+  useEffect(() => {
+    const dialog = confirmDialog.current;
+    if (!dialog) return;
+    if (confirmation && !dialog.open) dialog.showModal();
+    if (!confirmation && dialog.open) dialog.close();
+  }, [confirmation]);
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setDevices([]);
     setBuilds([]);
-    setBuildsErr("");
-    setBuildsMsg("");
     setServers([]);
-    setServersErr("");
-    setServersMsg("");
   }, []);
 
-  const login = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginErr("");
-    setLoading(true);
+  const authHeaders = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const loadData = useCallback(async (showSpinner = true) => {
+    if (!token) return;
+    if (showSpinner) setLoading(true);
+    setError("");
     try {
-      const r = await fetch(`${apiBase()}/api/v1/auth/login`, {
+      const requests = await Promise.all([
+        fetch("/api/v1/devices", { headers: authHeaders() }),
+        fetch("/api/v1/admin/builds", { headers: authHeaders() }),
+        fetch("/api/v1/servers", { headers: authHeaders() }),
+      ]);
+      if (requests.some((response) => response.status === 401)) {
+        logout();
+        return;
+      }
+      const failed = requests.find((response) => !response.ok);
+      if (failed) {
+        setError(await responseError(failed, "Не удалось загрузить данные портала"));
+        return;
+      }
+      const [deviceRows, buildRows, serverRows] = await Promise.all(requests.map((response) => response.json()));
+      setDevices(deviceRows as Device[]);
+      setBuilds(buildRows as Build[]);
+      setServers(serverRows as TagServer[]);
+    } catch {
+      setError("Не удалось связаться с порталом. Проверьте подключение и повторите попытку.");
+    } finally {
+      if (showSpinner) setLoading(false);
+    }
+  }, [token, authHeaders, logout]);
+
+  useEffect(() => {
+    if (token) void loadData();
+  }, [token, loadData]);
+
+  const login = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginError("");
+    setLoginLoading(true);
+    try {
+      const response = await fetch("/api/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
-      if (!r.ok) {
-        setLoginErr("Неверный пароль или ошибка сервера");
-        setLoading(false);
+      if (!response.ok) {
+        setLoginError(await responseError(response, "Не удалось войти"));
         return;
       }
-      const j = await r.json();
-      localStorage.setItem(TOKEN_KEY, j.token);
-      setToken(j.token);
+      const result = (await response.json()) as { token: string };
+      localStorage.setItem(TOKEN_KEY, result.token);
+      setToken(result.token);
       setPassword("");
     } catch {
-      setLoginErr("Сеть недоступна");
+      setLoginError("Не удалось связаться с порталом. Проверьте подключение.");
+    } finally {
+      setLoginLoading(false);
     }
-    setLoading(false);
   };
 
-  const load = useCallback(async () => {
+  const performDeleteDevice = async (device: Device) => {
     if (!token) return;
-    setListErr("");
+    setBusyId(device.rustdesk_id);
+    setError("");
     try {
-      const r = await fetch(`${apiBase()}/api/v1/devices`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await fetch(`/api/v1/devices/${encodeURIComponent(device.rustdesk_id)}`, {
+        method: "DELETE", headers: authHeaders(),
       });
-      if (r.status === 401) {
-        logout();
-        return;
-      }
-      if (!r.ok) {
-        setListErr("Не удалось загрузить список");
-        return;
-      }
-      setDevices(await r.json());
-    } catch {
-      setListErr("Ошибка сети");
+      if (response.status === 401) return logout();
+      if (!response.ok) throw new Error(await responseError(response, "Не удалось удалить устройство"));
+      setDevices((current) => current.filter((row) => row.rustdesk_id !== device.rustdesk_id));
+      setNotice("Устройство удалено");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить устройство");
+    } finally {
+      setBusyId("");
     }
-  }, [token, logout]);
+  };
 
-  const deleteDevice = useCallback(
-    async (id: string) => {
-      if (!token) return;
-      if (!window.confirm(`Удалить устройство ${id} из списка?`)) return;
-      setListErr("");
-      setDeletingId(id);
-      try {
-        const r = await fetch(`${apiBase()}/api/v1/devices/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (r.status === 401) {
-          logout();
-          return;
-        }
-        if (r.status === 404) {
-          setListErr("Устройство уже удалено");
-          await load();
-          return;
-        }
-        if (!r.ok) {
-          setListErr("Не удалось удалить устройство");
-          return;
-        }
-        setDevices((prev) => prev.filter((d) => d.rustdesk_id !== id));
-      } catch {
-        setListErr("Ошибка сети при удалении");
-      } finally {
-        setDeletingId("");
-      }
-    },
-    [token, logout, load]
-  );
+  const deleteDevice = (device: Device) => setConfirmation({
+    title: "Удалить устройство?",
+    message: `${device.hostname || device.rustdesk_id} будет удалено из списка портала.`,
+    actionLabel: "Удалить",
+    run: () => performDeleteDevice(device),
+  });
 
-  const loadBuilds = useCallback(async () => {
-    if (!token) return;
-    setBuildsErr("");
-    try {
-      const r = await fetch(`${apiBase()}/api/v1/admin/builds`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (r.status === 401) {
-        logout();
-        return;
-      }
-      if (!r.ok) {
-        setBuildsErr("Не удалось получить список сборок");
-        return;
-      }
-      setBuilds((await r.json()) as Build[]);
-    } catch {
-      setBuildsErr("Ошибка сети при загрузке сборок");
-    }
-  }, [token, logout]);
-
-  const loadServers = useCallback(async () => {
-    if (!token) return;
-    setServersErr("");
-    try {
-      const r = await fetch(`${apiBase()}/api/v1/servers`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (r.status === 401) {
-        logout();
-        return;
-      }
-      if (!r.ok) {
-        setServersErr("Не удалось получить список серверов");
-        return;
-      }
-      setServers((await r.json()) as TagServer[]);
-    } catch {
-      setServersErr("Ошибка сети при загрузке серверов");
-    }
-  }, [token, logout]);
-
-  const saveServer = useCallback(async () => {
-    if (!token) return;
-    setServersErr("");
-    setServersMsg("");
-    const host = serverHost.trim();
-    const key = serverKey.trim();
-    if (!host || !host.includes(":")) {
-      setServersErr("Укажите адрес сервера в виде host:port");
+  const uploadBuild = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!token || !buildFile) {
+      setError("Выберите файл сборки");
       return;
     }
-    if (!key) {
-      setServersErr("Public key обязателен");
-      return;
-    }
-    setServerSaving(true);
+    const form = new FormData();
+    form.append("version", buildVersion.trim());
+    form.append("flavor", buildFlavor);
+    form.append("platform", buildPlatform);
+    form.append("file", buildFile);
+    setBusyId("upload");
+    setError("");
+    setNotice("");
     try {
-      const r = await fetch(`${apiBase()}/api/v1/servers`, {
+      const response = await fetch("/api/v1/admin/builds", { method: "POST", headers: authHeaders(), body: form });
+      if (response.status === 401) return logout();
+      if (!response.ok) throw new Error(await responseError(response, "Не удалось загрузить сборку"));
+      setBuildVersion("");
+      setBuildFile(null);
+      await loadData(false);
+      setNotice("Сборка загружена и ожидает проверки администратора");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить сборку");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const changeBuildStatus = async (build: Build, action: "approve" | "reject") => {
+    if (!token) return;
+    setBusyId(`build-${build.id}`);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/v1/admin/builds/${build.id}/${action}`, {
+        method: "POST", headers: authHeaders(),
+      });
+      if (response.status === 401) return logout();
+      if (!response.ok) throw new Error(await responseError(response, "Не удалось изменить статус сборки"));
+      await loadData(false);
+      setNotice(action === "approve" ? "Сборка опубликована" : "Сборка отклонена");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось изменить статус сборки");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const saveServer = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!token) return;
+    setBusyId("server-save");
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/v1/servers", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ name: serverName.trim(), host, public_key: key }),
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ name: serverName.trim(), host: serverHost.trim(), public_key: serverKey.trim() }),
       });
-      if (r.status === 401) {
-        logout();
-        return;
-      }
-      if (!r.ok) {
-        setServersErr(r.status === 400 ? await r.text() : "Не удалось сохранить сервер");
-        return;
-      }
-      setServersMsg(`Сервер ${host} добавлен в общий список`);
+      if (response.status === 401) return logout();
+      if (!response.ok) throw new Error(await responseError(response, "Не удалось сохранить сервер"));
+      await loadData(false);
+      setNotice(editingServer ? "Изменения сервера сохранены" : "Сервер добавлен в общий список");
+      setEditingServer(null);
       setServerName("");
       setServerHost("");
       setServerKey("");
-      await loadServers();
-    } catch {
-      setServersErr("Ошибка сети при сохранении сервера");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось сохранить сервер");
     } finally {
-      setServerSaving(false);
+      setBusyId("");
     }
-  }, [token, logout, loadServers, serverName, serverHost, serverKey]);
+  };
 
-  const deleteServer = useCallback(
-    async (id: number) => {
-      if (!token) return;
-      if (!window.confirm(`Удалить сервер #${id} из общего списка?`)) return;
-      setServersErr("");
-      setServersMsg("");
-      setDeletingServerId(id);
-      try {
-        const r = await fetch(`${apiBase()}/api/v1/admin/servers/${id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (r.status === 401) {
-          logout();
-          return;
-        }
-        if (r.status === 404) {
-          setServersErr("Сервер уже удалён");
-          await loadServers();
-          return;
-        }
-        if (!r.ok) {
-          setServersErr("Не удалось удалить сервер");
-          return;
-        }
-        setServers((prev) => prev.filter((s) => s.id !== id));
-      } catch {
-        setServersErr("Ошибка сети при удалении сервера");
-      } finally {
-        setDeletingServerId(0);
-      }
-    },
-    [token, logout, loadServers]
-  );
+  const editServer = (server: TagServer) => {
+    setEditingServer(server.id);
+    setServerName(server.name);
+    setServerHost(server.host);
+    setServerKey(server.public_key);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-  useEffect(() => {
+  const performDeleteServer = async (server: TagServer) => {
     if (!token) return;
-    void load();
-    void loadBuilds();
-    void loadServers();
-  }, [token, load, loadBuilds, loadServers]);
-
-  const uploadBuild = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file || !token) return;
-      setBuildsErr("");
-      setBuildsMsg("");
-      const ver = buildVersion.trim();
-      if (!ver) {
-        setBuildsErr("Укажите версию сборки (например 1.4.9)");
-        e.target.value = "";
-        return;
+    setBusyId(`server-${server.id}`);
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/admin/servers/${server.id}`, { method: "DELETE", headers: authHeaders() });
+      if (response.status === 401) return logout();
+      if (!response.ok) throw new Error(await responseError(response, "Не удалось удалить сервер"));
+      setServers((current) => current.filter((row) => row.id !== server.id));
+      if (editingServer === server.id) {
+        setEditingServer(null);
+        setServerName("");
+        setServerHost("");
+        setServerKey("");
       }
-      setSelectedBuildName(file.name);
-      const form = new FormData();
-      form.append("version", ver);
-      form.append("flavor", buildFlavor);
-      form.append("platform", buildPlatform);
-      form.append("file", file);
-      setBuildUploading(true);
-      try {
-        const r = await fetch(`${apiBase()}/api/v1/admin/builds`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: form,
-        });
-        if (r.status === 401) {
-          logout();
-          return;
-        }
-        if (!r.ok) {
-          const errText = await r.text();
-          if (r.status === 413) {
-            setBuildsErr("Файл слишком большой для загрузки");
-          } else {
-            setBuildsErr(errText || "Не удалось загрузить сборку");
-          }
-          return;
-        }
-        setBuildsMsg("Сборка загружена и ожидает подтверждения администратора.");
-        await loadBuilds();
-      } catch {
-        setBuildsErr("Ошибка сети при загрузке файла");
-      } finally {
-        setBuildUploading(false);
-        e.target.value = "";
-      }
-    },
-    [token, logout, buildVersion, buildFlavor, buildPlatform, loadBuilds]
-  );
+      setNotice("Сервер удалён");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить сервер");
+    } finally {
+      setBusyId("");
+    }
+  };
 
-  const approveBuild = useCallback(
-    async (id: number) => {
-      if (!token) return;
-      setBuildsErr("");
-      setBuildsMsg("");
-      try {
-        const r = await fetch(`${apiBase()}/api/v1/admin/builds/${id}/approve`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (r.status === 401) {
-          logout();
-          return;
-        }
-        if (!r.ok) {
-          setBuildsErr("Не удалось подтвердить сборку");
-          return;
-        }
-        setBuildsMsg("Сборка подтверждена и будет раздаваться клиентам.");
-        await loadBuilds();
-      } catch {
-        setBuildsErr("Ошибка сети");
-      }
-    },
-    [token, logout, loadBuilds]
-  );
+  const deleteServer = (server: TagServer) => setConfirmation({
+    title: "Удалить сервер?",
+    message: `${server.host} будет удалён из общего списка и перестанет отображаться у клиентов.`,
+    actionLabel: "Удалить",
+    run: () => performDeleteServer(server),
+  });
 
-  const rejectBuild = useCallback(
-    async (id: number) => {
-      if (!token) return;
-      setBuildsErr("");
-      setBuildsMsg("");
-      try {
-        const r = await fetch(`${apiBase()}/api/v1/admin/builds/${id}/reject`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (r.status === 401) {
-          logout();
-          return;
-        }
-        if (!r.ok) {
-          setBuildsErr("Не удалось отклонить сборку");
-          return;
-        }
-        setBuildsMsg("Сборка отклонена.");
-        await loadBuilds();
-      } catch {
-        setBuildsErr("Ошибка сети");
-      }
-    },
-    [token, logout, loadBuilds]
-  );
-
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return devices;
-    return devices.filter(
-      (d) =>
-        d.rustdesk_id.includes(s) ||
-        d.hostname.toLowerCase().includes(s) ||
-        d.username.toLowerCase().includes(s) ||
-        d.ip_public.includes(s) ||
-        d.os_info.toLowerCase().includes(s)
-    );
-  }, [devices, q]);
+  const filteredDevices = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    if (!value) return devices;
+    return devices.filter((device) => [
+      device.rustdesk_id, device.hostname, device.username, device.ip_public, device.os_info,
+    ].some((field) => field.toLowerCase().includes(value)));
+  }, [devices, query]);
 
   if (!token) {
     return (
-      <div className="win11-login">
-        <div className="win11-login-card">
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 8 }}>
-            <div className="win11-nav-logo">R</div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>RustDesk</div>
-              <div style={{ fontSize: 12, color: "var(--win-text-tertiary)" }}>Портал учёта устройств</div>
-            </div>
-          </div>
-          <h1>Вход</h1>
-          <p className="lead">Введите пароль администратора.</p>
-          <form onSubmit={login}>
-            <label htmlFor="pw">Пароль</label>
-            <input
-              id="pw"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button type="submit" className="fluent-btn fluent-btn-primary" disabled={loading || !password}>
-              {loading ? "Вход…" : "Войти"}
-            </button>
-            {loginErr ? <p className="fluent-error" style={{ marginTop: 16, marginBottom: 0 }}>{loginErr}</p> : null}
-          </form>
-        </div>
-      </div>
+      <main className="login-shell">
+        <form className="login-card surface-card" onSubmit={login}>
+          <h1>Вход в портал</h1>
+          <p className="supporting-text">Введите пароль администратора, чтобы управлять устройствами и сборками.</p>
+          <md-outlined-text-field
+            label="Пароль администратора"
+            type="password"
+            autocomplete="current-password"
+            required
+            value={password}
+            onInput={(event: React.FormEvent<HTMLElement>) => setPassword((event.currentTarget as HTMLInputElement).value)}
+          />
+          {loginError && <Alert>{loginError}</Alert>}
+          <FilledButton type="submit" disabled={loginLoading || !password}>
+            {loginLoading ? "Вход…" : "Войти"}
+          </FilledButton>
+        </form>
+      </main>
     );
   }
 
+  const info = PAGE_INFO[page];
   return (
-    <div className="win11-app">
-      <div className="win11-titlebar">RustDesk — учёт устройств</div>
-      <div className="win11-body">
-        <aside className="win11-nav" aria-label="Навигация">
-          <div className="win11-nav-brand">
-            <div className="win11-nav-logo">R</div>
-            <div>
-              <div className="win11-nav-title">RustDesk</div>
-              <div className="win11-nav-sub">Инвентаризация</div>
-            </div>
+    <div className="app-shell">
+      <header className="top-app-bar">
+        <button className="brand-button" type="button" onClick={() => setPage("devices")} aria-label="На главную">
+          <span className="brand-mark">R</span><span>RustDesk</span>
+        </button>
+        <span className="top-app-title">Портал учёта</span>
+        <div className="top-actions">
+          <OutlinedButton onClick={() => void loadData()}>Обновить</OutlinedButton>
+          <md-text-button onClick={logout}>Выйти</md-text-button>
+        </div>
+      </header>
+      <div className="app-layout">
+        <nav className="navigation-rail" aria-label="Разделы портала">
+          {([
+            ["devices", "Устройства"],
+            ["builds", "Сборки"],
+            ["servers", "Серверы"],
+          ] as [Page, string][]).map(([id, label]) => (
+            <button
+              key={id}
+              className={`nav-item ${page === id ? "selected" : ""}`}
+              type="button"
+              aria-current={page === id ? "page" : undefined}
+              onClick={() => { setPage(id); setError(""); setNotice(""); }}
+            >
+              <span className="nav-icon"><NavigationIcon page={id} /></span><span>{label}</span>
+            </button>
+          ))}
+          <div className="nav-footer">Панель администратора</div>
+        </nav>
+        <main className="page-content">
+          <div className="page-heading">
+            <div><div className="eyebrow">Управление</div><h1>{info.title}</h1><p>{info.description}</p></div>
+            <div className="page-count">{page === "devices" ? devices.length : page === "builds" ? builds.length : servers.length}</div>
           </div>
-          <div className="win11-nav-item">
-            <IconMonitor />
-            Устройства
-          </div>
-        </aside>
-        <main className="win11-main">
-          <h1 className="win11-page-title">Устройства</h1>
-          <p className="win11-page-desc">
-            Список клиентов, отправивших отчёт. Данные обновляются по расписанию с клиента.
-          </p>
-
-          <div className="fluent-card fluent-upload-card">
-            <div className="fluent-upload-header">
-              <div>
-                <h2>Сборки и обновления</h2>
-                <p>
-                  Загрузите новую сборку и укажите <span className="mono">flavor</span> (<span className="mono">normal</span>{" "}
-                  или <span className="mono">cashdesk</span>) и версию. Сборка получит статус «Ожидает» и будет раздаваться
-                  клиентам <strong>только после подтверждения</strong>. Автоматически её может залить и CI
-                  (<span className="mono">POST /api/v1/ci/builds</span>).
-                </p>
-              </div>
-              <span className="fluent-badge" title="Всего сборок">
-                {builds.length}
-              </span>
-            </div>
-
-            <div className="fluent-upload-grid">
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Версия</span>
-                <input
-                  className="fluent-text-input mono"
-                  type="text"
-                  value={buildVersion}
-                  onChange={(e) => setBuildVersion(e.target.value)}
-                  placeholder="Например 1.4.9"
-                  disabled={buildUploading}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Flavor</span>
-                <select
-                  className="fluent-text-input"
-                  value={buildFlavor}
-                  onChange={(e) => setBuildFlavor(e.target.value)}
-                  disabled={buildUploading}
-                >
-                  {FLAVORS.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Платформа</span>
-                <select
-                  className="fluent-text-input"
-                  value={buildPlatform}
-                  onChange={(e) => setBuildPlatform(e.target.value)}
-                  disabled={buildUploading}
-                >
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Файл</span>
-                <div className="fluent-upload-row">
-                  <input
-                    ref={buildFileInputRef}
-                    className="fluent-file-input"
-                    type="file"
-                    accept=".exe,.msi,.deb,.rpm,.zst,.apk,.dmg,.pkg,application/octet-stream"
-                    onChange={uploadBuild}
-                    disabled={buildUploading}
-                  />
-                  <button
-                    type="button"
-                    className="fluent-btn fluent-btn-secondary fluent-upload-pick"
-                    disabled={buildUploading}
-                    onClick={() => buildFileInputRef.current?.click()}
-                  >
-                    <IconUpload />
-                    {buildUploading ? "Загрузка…" : "Выбрать файл"}
-                  </button>
-                  <div className="fluent-file-name-plate mono" title={selectedBuildName || undefined}>
-                    {selectedBuildName || "Файл не выбран"}
+          {error && <Alert>{error}</Alert>}
+          {notice && <Alert kind="success">{notice}</Alert>}
+          {loading ? <Loading /> : (
+            <>
+              {page === "devices" && (
+                <section className="surface-card data-card" aria-label="Список устройств">
+                  <div className="toolbar">
+                    <md-outlined-text-field
+                      className="search-field"
+                      label="Поиск по ID, компьютеру, пользователю, IP"
+                      type="search"
+                      value={query}
+                      onInput={(event: React.FormEvent<HTMLElement>) => setQuery((event.currentTarget as HTMLInputElement).value)}
+                    />
+                    <span className="result-count">{filteredDevices.length} из {devices.length}</span>
                   </div>
-                </div>
-              </div>
-            </div>
+                  {filteredDevices.length === 0 ? <div className="empty-state">{devices.length ? "Ничего не найдено. Измените запрос." : "Устройства пока не отправляли отчёты."}</div> : (
+                    <div className="table-scroll"><table className="data-table">
+                      <thead><tr><th>Устройство</th><th>Пользователь</th><th>Система</th><th>IP</th><th>AD → адресная книга</th><th>Временный пароль</th><th>Обновлено</th><th /></tr></thead>
+                      <tbody>{filteredDevices.map((device) => (
+                        <tr key={device.rustdesk_id}>
+                          <td><strong>{device.hostname || "Без имени"}</strong><span className="secondary-cell mono">{device.rustdesk_id}</span></td>
+                          <td>{device.username || "—"}</td>
+                          <td title={device.computer_summary}>{device.os_info || "—"}<span className="secondary-cell">{device.app_version}</span></td>
+                          <td className="mono">{device.ip_local || device.ip_public || "—"}</td>
+                          <td><StatusPill status={device.ad_status} />{device.ad_updated_at && <span className="secondary-cell">{formatDate(device.ad_updated_at)}</span>}{device.ad_message && <span className="secondary-cell" title={device.ad_message}>{device.ad_message}</span>}</td>
+                          <td><div className="password-cell"><code>{passwordVisible.includes(device.rustdesk_id) ? device.temporary_password || "—" : "••••••••"}</code><md-text-button onClick={() => setPasswordVisible((current) => current.includes(device.rustdesk_id) ? current.filter((id) => id !== device.rustdesk_id) : [...current, device.rustdesk_id])} aria-label={passwordVisible.includes(device.rustdesk_id) ? "Скрыть пароль" : "Показать пароль"}>{passwordVisible.includes(device.rustdesk_id) ? "Скрыть" : "Показать"}</md-text-button></div></td>
+                          <td>{device.updated_at || "—"}</td>
+                          <td><md-text-button disabled={busyId === device.rustdesk_id} onClick={() => void deleteDevice(device)}>Удалить</md-text-button></td>
+                        </tr>
+                      ))}</tbody>
+                    </table></div>
+                  )}
+                </section>
+              )}
 
-            {buildsErr ? <div className="fluent-error">{buildsErr}</div> : null}
-            {buildsMsg ? <div className="fluent-success">{buildsMsg}</div> : null}
+              {page === "builds" && (
+                <>
+                  <section className="surface-card form-card">
+                    <div className="section-heading"><div><h2>Загрузить сборку</h2><p>Новая сборка появится у клиентов после подтверждения.</p></div><StatusPill status="pending" /></div>
+                    <form className="form-grid" onSubmit={(event) => void uploadBuild(event)}>
+                      <md-outlined-text-field label="Версия" placeholder="Например, 1.4.9" required value={buildVersion} onInput={(event: React.FormEvent<HTMLElement>) => setBuildVersion((event.currentTarget as HTMLInputElement).value)} />
+                      <md-outlined-select label="Канал" value={buildFlavor} onChange={(event: React.FormEvent<HTMLElement>) => setBuildFlavor((event.currentTarget as HTMLSelectElement).value)}>{FLAVORS.map((flavor) => <md-select-option key={flavor} value={flavor}><div slot="headline">{flavor}</div></md-select-option>)}</md-outlined-select>
+                      <md-outlined-select label="Платформа" value={buildPlatform} onChange={(event: React.FormEvent<HTMLElement>) => setBuildPlatform((event.currentTarget as HTMLSelectElement).value)}>{PLATFORMS.map((platform) => <md-select-option key={platform} value={platform}><div slot="headline">{platform}</div></md-select-option>)}</md-outlined-select>
+                      <label className="native-field file-field"><span>Файл сборки</span><input type="file" accept=".exe,.msi,.deb,.rpm,.zst,.apk,.dmg,.pkg,.appimage,.gz" onChange={(event) => setBuildFile(event.target.files?.[0] ?? null)} required /></label>
+                      <div className="form-actions"><FilledButton type="submit" disabled={busyId === "upload"}>{busyId === "upload" ? "Загрузка…" : "Загрузить на проверку"}</FilledButton></div>
+                    </form>
+                  </section>
+                  <section className="surface-card data-card">
+                    <div className="section-heading"><div><h2>История сборок</h2><p>Только сборки «Ожидают проверки» можно подтвердить или отклонить.</p></div></div>
+                    {builds.length === 0 ? <div className="empty-state">Сборок пока нет.</div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Сборка</th><th>Канал</th><th>Платформа</th><th>Файл и размер</th><th>Статус</th><th>Загружена</th><th>Действия</th></tr></thead><tbody>
+                      {builds.map((build) => <tr key={build.id}>
+                        <td><strong>{build.version}</strong><span className="secondary-cell">#{build.id}</span></td><td>{build.flavor}</td><td>{build.platform}</td><td>{build.file_name}<span className="secondary-cell">{formatBytes(build.file_size)}</span></td><td><StatusPill status={build.status} /></td><td>{build.uploaded_at}</td>
+                        <td>{build.status === "pending" ? <div className="row-actions"><md-filled-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "approve")}>Опубликовать</md-filled-button><md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "reject")}>Отклонить</md-outlined-button></div> : "—"}</td>
+                      </tr>)}
+                    </tbody></table></div>}
+                  </section>
+                </>
+              )}
 
-            {builds.length === 0 ? (
-              <div className="fluent-empty">Сборок пока нет.</div>
-            ) : (
-              <div className="fluent-table-wrap">
-                <table className="fluent-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Flavor</th>
-                      <th>Платформа</th>
-                      <th>Версия</th>
-                      <th>Файл</th>
-                      <th>Размер</th>
-                      <th>Статус</th>
-                      <th>Загружена</th>
-                      <th>Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {builds.map((b) => (
-                      <tr key={b.id}>
-                        <td className="mono">{b.id}</td>
-                        <td className="mono">{b.flavor}</td>
-                        <td className="mono">{b.platform}</td>
-                        <td className="mono">{b.version}</td>
-                        <td className="mono" title={b.sha256 ? `sha256: ${b.sha256}` : undefined}>
-                          {b.file_name}
-                        </td>
-                        <td>{formatBytes(b.file_size)}</td>
-                        <td>{statusLabel(b.status)}</td>
-                        <td className="mono">{b.uploaded_at}</td>
-                        <td>
-                          {b.status === "pending" ? (
-                            <div className="fluent-btn-group">
-                              <button
-                                type="button"
-                                className="fluent-btn fluent-btn-primary"
-                                onClick={() => void approveBuild(b.id)}
-                              >
-                                Подтвердить
-                              </button>
-                              <button
-                                type="button"
-                                className="fluent-btn fluent-btn-secondary"
-                                onClick={() => void rejectBuild(b.id)}
-                              >
-                                Отклонить
-                              </button>
-                            </div>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {page === "servers" && (
+                <>
+                  <section className="surface-card form-card">
+                    <div className="section-heading"><div><h2>{editingServer ? "Изменить сервер" : "Добавить сервер"}</h2><p>Изменения сразу появятся в общем списке клиентов.</p></div></div>
+                    <form className="form-grid server-form" onSubmit={(event) => void saveServer(event)}>
+                      <md-outlined-text-field label="Название" placeholder="Например, филиал Казань" value={serverName} onInput={(event: React.FormEvent<HTMLElement>) => setServerName((event.currentTarget as HTMLInputElement).value)} />
+                      <md-outlined-text-field label="Адрес host:port" placeholder="rustdesk.example.ru:21116" required readonly={editingServer !== null} value={serverHost} onInput={(event: React.FormEvent<HTMLElement>) => setServerHost((event.currentTarget as HTMLInputElement).value)} />
+                      <md-outlined-text-field className="wide-field" label="Публичный ключ" required value={serverKey} onInput={(event: React.FormEvent<HTMLElement>) => setServerKey((event.currentTarget as HTMLInputElement).value)} />
+                      <div className="form-actions"><FilledButton type="submit" disabled={busyId === "server-save"}>{busyId === "server-save" ? "Сохранение…" : editingServer ? "Сохранить изменения" : "Добавить сервер"}</FilledButton>{editingServer && <md-text-button type="button" onClick={() => { setEditingServer(null); setServerName(""); setServerHost(""); setServerKey(""); }}>Отмена</md-text-button>}</div>
+                    </form>
+                  </section>
+                  <section className="surface-card data-card">
+                    <div className="section-heading"><div><h2>Общий список</h2><p>Клиенты используют эти серверы при настройке тегов адресной книги.</p></div></div>
+                    {servers.length === 0 ? <div className="empty-state">Серверов пока нет.</div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Название</th><th>Адрес</th><th>Публичный ключ</th><th>Обновлён</th><th>Действия</th></tr></thead><tbody>
+                      {servers.map((server) => <tr key={server.id}><td><strong>{server.name || server.host}</strong></td><td className="mono">{server.host}</td><td><code className="key-value" title={server.public_key}>{server.public_key}</code></td><td>{server.updated_at}</td><td><div className="row-actions"><md-text-button onClick={() => editServer(server)}>Изменить</md-text-button><md-text-button disabled={busyId === `server-${server.id}`} onClick={() => void deleteServer(server)}>Удалить</md-text-button></div></td></tr>)}
+                    </tbody></table></div>}
+                  </section>
+                </>
+              )}
+            </>
+          )}
+          <footer className="page-footer">Данные портала обновляются автоматически с устройств.</footer>
+          <dialog
+            ref={confirmDialog}
+            className="confirm-dialog"
+            aria-labelledby="confirm-title"
+            onCancel={(event) => { event.preventDefault(); setConfirmation(null); }}
+          >
+            {confirmation && <>
+              <h2 id="confirm-title">{confirmation.title}</h2>
+              <p>{confirmation.message}</p>
+              <div className="confirm-actions">
+                <md-text-button onClick={() => setConfirmation(null)}>Отмена</md-text-button>
+                <md-filled-button onClick={() => {
+                  const action = confirmation.run;
+                  setConfirmation(null);
+                  void action();
+                }}>{confirmation.actionLabel}</md-filled-button>
               </div>
-            )}
-          </div>
-
-          <div className="fluent-card fluent-upload-card">
-            <div className="fluent-upload-header">
-              <div>
-                <h2>RustDesk-серверы</h2>
-                <p>
-                  Общий реестр дополнительных серверов: адрес (<span className="mono">host:port</span>) и public key. Клиент тянет
-                  этот список и выбирает сервер из выпадающего списка при настройке тега адресной книги — ключ подставляется
-                  автоматически. Добавить сервер может и клиент (<span className="mono">POST /api/v1/servers</span>).
-                </p>
-              </div>
-              <span className="fluent-badge" title="Всего серверов">
-                {servers.length}
-              </span>
-            </div>
-
-            <div className="fluent-upload-grid">
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Название</span>
-                <input
-                  className="fluent-text-input"
-                  type="text"
-                  value={serverName}
-                  onChange={(e) => setServerName(e.target.value)}
-                  placeholder="Например: филиал Нижнекамск"
-                  disabled={serverSaving}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Адрес</span>
-                <input
-                  className="fluent-text-input mono"
-                  type="text"
-                  value={serverHost}
-                  onChange={(e) => setServerHost(e.target.value)}
-                  placeholder="rustdesk2.example.ru:21116"
-                  disabled={serverSaving}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">Public key</span>
-                <input
-                  className="fluent-text-input mono"
-                  type="text"
-                  value={serverKey}
-                  onChange={(e) => setServerKey(e.target.value)}
-                  placeholder="base64 key.pub"
-                  disabled={serverSaving}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label">&nbsp;</span>
-                <button
-                  type="button"
-                  className="fluent-btn fluent-btn-primary"
-                  disabled={serverSaving}
-                  onClick={() => void saveServer()}
-                >
-                  {serverSaving ? "Сохранение…" : "Добавить сервер"}
-                </button>
-              </div>
-            </div>
-
-            {serversErr ? <div className="fluent-error">{serversErr}</div> : null}
-            {serversMsg ? <div className="fluent-success">{serversMsg}</div> : null}
-
-            {servers.length === 0 ? (
-              <div className="fluent-empty">Серверов пока нет.</div>
-            ) : (
-              <div className="fluent-table-wrap">
-                <table className="fluent-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Название</th>
-                      <th>Адрес</th>
-                      <th>Public key</th>
-                      <th>Обновлён</th>
-                      <th aria-label="Действия" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {servers.map((s) => (
-                      <tr key={s.id}>
-                        <td className="mono">{s.id}</td>
-                        <td>{s.name || "—"}</td>
-                        <td className="mono">{s.host}</td>
-                        <td className="mono" title={s.public_key || undefined}>
-                          {s.public_key
-                            ? s.public_key.length > 16
-                              ? `${s.public_key.slice(0, 16)}…`
-                              : s.public_key
-                            : "—"}
-                        </td>
-                        <td className="mono">{s.updated_at}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="fluent-btn fluent-btn-secondary fluent-row-delete"
-                            title="Удалить сервер"
-                            aria-label={`Удалить сервер ${s.host}`}
-                            disabled={deletingServerId === s.id}
-                            onClick={() => void deleteServer(s.id)}
-                          >
-                            {deletingServerId === s.id ? "…" : "Удалить"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="win11-commandbar">
-            <div className="fluent-search-wrap">
-              <IconSearch />
-              <input
-                className="fluent-search"
-                type="search"
-                placeholder="Поиск по ID, имени ПК, пользователю, IP…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                aria-label="Поиск"
-              />
-            </div>
-            <div className="fluent-btn-group">
-              <span className="fluent-badge" title="Записей в списке">
-                {filtered.length}
-              </span>
-              <button
-                type="button"
-                className="fluent-btn fluent-btn-secondary"
-                onClick={() => {
-                  void load();
-                  void loadBuilds();
-                  void loadServers();
-                }}
-              >
-                Обновить
-              </button>
-              <button type="button" className="fluent-btn fluent-btn-secondary" onClick={logout}>
-                Выйти
-              </button>
-            </div>
-          </div>
-
-          {listErr ? <div className="fluent-error">{listErr}</div> : null}
-
-          <div className="fluent-card">
-            {filtered.length === 0 ? (
-              <div className="fluent-empty">Нет записей или ничего не найдено по запросу.</div>
-            ) : (
-              <div className="fluent-table-wrap">
-                <table className="fluent-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Компьютер</th>
-                      <th>Пользователь</th>
-                      <th>ОС</th>
-                      <th>IP (внешн.)</th>
-                      <th>IP (лок.)</th>
-                      <th>Врем. пароль</th>
-                      <th>Версия</th>
-                      <th>Обновлено</th>
-                      <th aria-label="Действия" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((d) => (
-                      <tr key={d.rustdesk_id}>
-                        <td className="mono">{d.rustdesk_id}</td>
-                        <td>{d.hostname || "—"}</td>
-                        <td>{d.username || "—"}</td>
-                        <td className="mono" title={d.computer_summary}>
-                          {d.os_info.length > 36 ? `${d.os_info.slice(0, 36)}…` : d.os_info}
-                        </td>
-                        <td className="mono">{d.ip_public || "—"}</td>
-                        <td className="mono">{d.ip_local || "—"}</td>
-                        <td className="mono">{d.temporary_password || "—"}</td>
-                        <td>{d.app_version || "—"}</td>
-                        <td className="mono">{d.updated_at}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="fluent-btn fluent-btn-secondary fluent-row-delete"
-                            title="Удалить устройство"
-                            aria-label={`Удалить устройство ${d.rustdesk_id}`}
-                            disabled={deletingId === d.rustdesk_id}
-                            onClick={() => void deleteDevice(d.rustdesk_id)}
-                          >
-                            {deletingId === d.rustdesk_id ? "…" : "Удалить"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+            </>}
+          </dialog>
         </main>
       </div>
     </div>

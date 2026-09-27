@@ -9,21 +9,52 @@ cd inventory_portal
 export INVENTORY_DEVICE_TOKEN="$(openssl rand -hex 24)"
 export ADMIN_PASSWORD="$(openssl rand -hex 16)"
 export JWT_SECRET="$(openssl rand -hex 32)"
+# AD -> адресная книга (токен rustdeskweb живёт только на портале)
+export RUSTDESKWEB_API_URL="https://rustdeskweb.corp.tatnefturs.ru"
+export RUSTDESKWEB_API_TOKEN="<admin api-token rustdeskweb>"
 docker compose up -d --build
 ```
 
 Веб: `http://localhost:8088` (порт задаётся переменной `PORT`).
 
-## Раздача `rustdesk.exe`
+## AD → адресная книга
 
-- После входа в админку можно загрузить актуальный `rustdesk.exe` и **обязательно указать версию** (например `1.4.7`). Версия должна быть **выше**, чем `VERSION` в собранном клиенте — иначе автообновление не предложит установку.
-- Портал покажет готовую публичную ссылку. Её можно отправлять пользователям: при открытии начнётся скачивание файла.
-- Публичный JSON для проверки обновлений (без авторизации): `GET /api/v1/downloads/rustdesk/windows/meta` — поля `available`, `version`, `download_path`.
-- Публичный путь скачивания: `GET /api/v1/downloads/rustdesk/windows/latest`
-- Файл хранится на сервере в каталоге `UPLOAD_DIR` (по умолчанию `/data/downloads`).
-- Лимит размера на API задаётся переменной `MAX_UPLOAD_BYTES` (по умолчанию `536870912`, то есть 512 МБ).
-- У фронтового nginx в образе задан `client_max_body_size 512m`, иначе загрузка обрывалась бы ответом 413 ещё до бэкенда.
-- У Axum для `Multipart` по умолчанию лимит тела запроса около **2 МБ**; на маршруте загрузки включён `DefaultBodyLimit` до значения `MAX_UPLOAD_BYTES`, иначе большой `rustdesk.exe` не доходит до обработчика (в UI было бы общее «не удалось загрузить»).
+Клиент **больше не хранит токен rustdeskweb**. Он отправляет свою AD-идентичность
+на портал, а портал сам добавляет/обновляет запись в общей адресной книге.
+
+- `POST /api/v1/ad/assign` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`,
+  тело: `{ "rustdesk_id", "ad_domain", "ad_user", "display_name", "username", "hostname", "platform" }`.
+  Ответ: `{ "status": "assigned" | "skipped" | "error", "message": ... }`.
+- Портал использует `RUSTDESKWEB_API_URL` / `RUSTDESKWEB_API_TOKEN`, домен `AD_DOMAIN`
+  и коллекцию `PRESET_ADDRESS_BOOK_NAME`.
+- Если `RUSTDESKWEB_API_TOKEN` не задан — назначение отключено (ответ `disabled`).
+- На клиенте URL портала берётся из `inventory-report-url` (база), токен — из
+  `inventory-report-token` или `RS_PUB_KEY`.
+
+## Сборки и обновления (с подтверждением администратора)
+
+Сборки больше не публикуются сразу: загрузка создаёт запись со статусом `pending`,
+и только администратор в UI подтверждает её (`published`) — тогда клиенты её видят.
+
+- **Flavor**: `normal` и `cashdesk` (у cashdesk свой канал обновлений).
+- **Платформа**: `windows` (основной канал), а также `linux`/`macos`/`android`.
+- Загрузка (админ): `POST /api/v1/admin/builds` — `multipart/form-data`:
+  `version`, `flavor`, `platform`, `file` (sha256 считается на сервере).
+- Загрузка из CI: `POST /api/v1/ci/builds` — тот же формат, заголовок
+  `Authorization: Bearer <CI_UPLOAD_TOKEN>` (если пусто — берётся
+  `INVENTORY_DEVICE_TOKEN`). Скрипт: `.github/scripts/upload-build-to-portal.sh`.
+- Список: `GET /api/v1/admin/builds` (JWT).
+- Подтверждение: `POST /api/v1/admin/builds/{id}/approve` — публикует сборку,
+  предыдущая опубликованная для того же flavor/platform уходит в `archived`.
+- Отклонение: `POST /api/v1/admin/builds/{id}/reject`.
+- Публичный meta (клиент): `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk`
+  → `{ available, version, download_path, sha256 }` только для подтверждённой сборки.
+- Публичное скачивание: `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...`.
+- Файлы хранятся в `UPLOAD_DIR/builds/` (по умолчанию `/data/downloads/builds`).
+- Лимит размера — `MAX_UPLOAD_BYTES` (512 МБ по умолчанию); `client_max_body_size`
+  у nginx и `DefaultBodyLimit` у Axum уже настроены.
+
+Клиент сам подставляет свой flavor в meta-запрос (`cashdesk`/`normal`), платформа — `windows`.
 
 ## GitHub Actions
 
@@ -67,10 +98,14 @@ docker compose up -d --build
 ## API
 
 - `POST /api/v1/report` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`, тело JSON (см. `inventory_sync.rs`).
+- `POST /api/v1/ad/assign` — заголовок `Authorization: Bearer <INVENTORY_DEVICE_TOKEN>`, AD → общая адресная книга (см. раздел выше).
 - `POST /api/v1/auth/login` — `{ "password": "<ADMIN_PASSWORD>" }` → JWT.
-- `GET /api/v1/devices` — заголовок `Authorization: Bearer <JWT>`
-- `DELETE /api/v1/devices/{id}` — заголовок `Authorization: Bearer <JWT>` — удаление устройства из базы.
-- `GET /api/v1/admin/downloads/rustdesk` — заголовок `Authorization: Bearer <jwt>`, статус загруженного файла.
-- `POST /api/v1/admin/downloads/rustdesk` — заголовок `Authorization: Bearer <jwt>`, `multipart/form-data`: поля **`version`** (строка, обязательно) и **`file`** (`.exe`).
-- `GET /api/v1/downloads/rustdesk/windows/meta` — публичный JSON для клиентского автообновления.
-- `GET /api/v1/downloads/rustdesk/windows/latest` — публичная ссылка на скачивание `rustdesk.exe`.
+- `GET /api/v1/devices` — заголовок `Authorization: Bearer ***
+- `DELETE /api/v1/devices/{id}` — заголовок `Authorization: Bearer *** — удаление устройства из базы.
+- `GET /api/v1/admin/builds` — список сборок (JWT).
+- `POST /api/v1/admin/builds` — загрузка сборки (JWT, `multipart/form-data`: `version`, `flavor`, `platform`, `file`) → `pending`.
+- `POST /api/v1/admin/builds/{id}/approve` — подтвердить сборку (JWT).
+- `POST /api/v1/admin/builds/{id}/reject` — отклонить сборку (JWT).
+- `POST /api/v1/ci/builds` — загрузка из CI (Bearer `CI_UPLOAD_TOKEN` или `INVENTORY_DEVICE_TOKEN`) → `pending`.
+- `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk` — публичный JSON для клиентского автообновления.
+- `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...` — публичное скачивание подтверждённой сборки (поддерживает `HEAD`).

@@ -79,7 +79,6 @@ fn gen_app_build_defaults() {
     println!("cargo:rerun-if-env-changed=RUSTDESK_API_SERVER");
     println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_ADDRESS_BOOK_NAME");
     println!("cargo:rerun-if-env-changed=RUSTDESK_AD_DOMAIN");
-    println!("cargo:rerun-if-env-changed=RUSTDESK_ASSIGN_API_TOKEN");
     println!("cargo:rerun-if-env-changed=RUSTDESK_APP_NAME");
 
     let desktop_ui_flavor = std::env::var("RUSTDESK_DESKTOP_UI_FLAVOR").unwrap_or_default();
@@ -89,12 +88,6 @@ fn gen_app_build_defaults() {
         .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let ad_domain =
         std::env::var("RUSTDESK_AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
-    let assign_api_token = if desktop_ui_flavor.eq_ignore_ascii_case("cashdesk") {
-        String::new()
-    } else {
-        std::env::var("RUSTDESK_ASSIGN_API_TOKEN")
-            .unwrap_or_else(|_| "696ccc9c6c5365f0b41f2d86db10f1e5".to_string())
-    };
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let path = std::path::Path::new(&out_dir).join("app_build_defaults.rs");
@@ -102,8 +95,7 @@ fn gen_app_build_defaults() {
         "pub const DEFAULT_DESKTOP_UI_FLAVOR_FROM_BUILD: &str = {desktop_ui_flavor:?};\n\
 pub const DEFAULT_API_SERVER_FROM_BUILD: &str = {api_server:?};\n\
 pub const DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD: &str = {preset_address_book_name:?};\n\
-pub const DEFAULT_AD_DOMAIN_FROM_BUILD: &str = {ad_domain:?};\n\
-pub const DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD: &str = {assign_api_token:?};\n"
+pub const DEFAULT_AD_DOMAIN_FROM_BUILD: &str = {ad_domain:?};\n"
     );
     std::fs::write(path, src).expect("write app_build_defaults.rs");
 }

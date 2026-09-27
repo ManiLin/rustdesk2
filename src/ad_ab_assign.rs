@@ -1,13 +1,16 @@
-//! Auto-assign domain PCs to shared address book via lejianwen rustdesk-api admin endpoints.
+//! Auto-assign domain PCs to the shared address book.
+//!
+//! The rustdeskweb admin token is **not** on the client anymore: the client
+//! only reports its AD identity to the inventory portal, which performs the
+//! address book assignment using its own server-side token.
 
-use crate::app_build_config::{
-    self, DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD, DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD,
-};
+use crate::app_build_config;
 use hbb_common::{
     allow_err,
     config::{self, Config},
     log, tokio,
 };
+#[cfg(windows)]
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -16,25 +19,15 @@ const FIRST_DELAY: Duration = Duration::from_secs(3);
 const RETRY_DELAY: Duration = Duration::from_secs(15);
 const INTERVAL: Duration = Duration::from_secs(300);
 const STATUS_KEY: &str = "ad_ab_assign_alias";
-const COLLECTION_CACHE_KEY: &str = "ad_ab_collection_cache";
 
 static LOGGED_DISABLED: AtomicBool = AtomicBool::new(false);
-static LOGGED_NO_TOKEN: AtomicBool = AtomicBool::new(false);
-static LOGGED_NO_COLLECTION: AtomicBool = AtomicBool::new(false);
+static LOGGED_NO_PORTAL: AtomicBool = AtomicBool::new(false);
 static LOGGED_NOT_IN_DOMAIN: AtomicBool = AtomicBool::new(false);
 static LOGGED_NOT_INSTALLED: AtomicBool = AtomicBool::new(false);
 static LOGGED_NO_DISPLAY_NAME: AtomicBool = AtomicBool::new(false);
-static LOGGED_API_NOT_READY: AtomicBool = AtomicBool::new(false);
-
-#[derive(Clone, Copy, Debug)]
-struct CollectionRef {
-    user_id: u64,
-    collection_id: u64,
-}
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start() {
-    log::info!("DBG748 H1: ad_ab_assign::start() entered, pid={}", std::process::id());
     if !app_build_config::ad_address_book_features_enabled() {
         if !LOGGED_DISABLED.swap(true, Ordering::SeqCst) {
             log::info!(
@@ -43,390 +36,58 @@ pub fn start() {
                 config::is_incoming_only()
             );
         }
-        log::info!("DBG748 H1: start() returning: features disabled");
         return;
     }
-    if DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.is_empty() {
-        if !LOGGED_NO_TOKEN.swap(true, Ordering::SeqCst) {
-            log::info!("ad_ab_assign: disabled, build token is empty");
-        }
-        log::info!("DBG748 H1: start() returning: token empty");
-        return;
-    }
-    log::info!(
-        "ad_ab_assign: started, api={}, address_book={}, ad_domain={}",
-        app_build_config::DEFAULT_API_SERVER_FROM_BUILD,
-        DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD,
-        app_build_config::DEFAULT_AD_DOMAIN_FROM_BUILD
-    );
-    log::info!("DBG748 H5: spawning ad_ab_assign worker thread");
     std::thread::spawn(|| {
-        log::info!("DBG748 H5: worker thread entered, building tokio runtime");
-        let rt_res = tokio::runtime::Builder::new_current_thread()
+        if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build();
-        match rt_res {
-            Ok(rt) => {
-                log::info!("DBG748 H5: tokio runtime built, entering run_loop");
-                rt.block_on(run_loop());
-            }
-            Err(e) => log::error!("DBG748 H5: tokio runtime build FAILED: {}", e),
+            .build()
+        {
+            rt.block_on(run_loop());
         }
     });
-    log::info!("DBG748 H1: start() spawned worker, returning");
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn start() {}
 
 async fn run_loop() {
-    log::info!(
-        "DBG748 H4: run_loop started, FIRST_DELAY={:?}, RETRY_DELAY={:?}, INTERVAL={:?}",
-        FIRST_DELAY,
-        RETRY_DELAY,
-        INTERVAL
-    );
-    let mut iteration: u64 = 0;
     tokio::time::sleep(FIRST_DELAY).await;
     loop {
-        iteration += 1;
         let stop_service = config::option2bool("stop-service", &Config::get_option("stop-service"));
-        let status_before = config::Status::get(STATUS_KEY);
-        log::info!(
-            "DBG748 H4: run_loop iter={}, stop_service={}, STATUS_KEY=\"{}\"",
-            iteration,
-            stop_service,
-            status_before
-        );
         if stop_service {
             tokio::time::sleep(Duration::from_secs(30)).await;
             continue;
         }
         allow_err!(try_auto_assign_address_book().await);
         let assigned = !config::Status::get(STATUS_KEY).is_empty();
-        let delay = if assigned { INTERVAL } else { RETRY_DELAY };
-        log::info!(
-            "DBG748 H4: run_loop iter={} done, assigned={}, sleeping {:?}",
-            iteration,
-            assigned,
-            delay
-        );
-        tokio::time::sleep(delay).await;
+        tokio::time::sleep(if assigned { INTERVAL } else { RETRY_DELAY }).await;
     }
 }
 
-fn assign_api_token() -> &'static str {
-    DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD
-}
-
-fn address_book_name() -> String {
-    let from_config = Config::get_option(config::keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
-    if !from_config.is_empty() {
-        return from_config;
+/// Portal base URL derived from `inventory-report-url`, e.g. `https://host`.
+fn portal_base_url() -> String {
+    let report = Config::get_inventory_report_url();
+    if report.is_empty() {
+        return String::new();
     }
-    DEFAULT_PRESET_ADDRESS_BOOK_NAME_FROM_BUILD.to_owned()
+    match report.find("/api/v1/report") {
+        Some(idx) => report[..idx].trim_end_matches('/').to_owned(),
+        None => report.trim_end_matches('/').to_owned(),
+    }
 }
 
-fn auth_header_json(token: &str) -> String {
-    format!(r#"{{"api-token":"{}"}}"#, token)
-}
-
-fn parse_http_body(raw: &str) -> hbb_common::ResultType<String> {
-    let v: Value = serde_json::from_str(raw)?;
-    if let Some(body) = v.get("body").and_then(|b| b.as_str()) {
-        Ok(body.to_owned())
+fn portal_token() -> String {
+    let t = Config::get_option(config::keys::OPTION_INVENTORY_REPORT_TOKEN);
+    if t.is_empty() {
+        config::DEFAULT_INVENTORY_REPORT_TOKEN.to_owned()
     } else {
-        Ok(raw.to_owned())
+        t
     }
 }
 
-fn api_ok(body: &str) -> bool {
-    serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.get("code").and_then(|c| c.as_i64()))
-        .map_or(false, |c| c == 0)
-}
-
-async fn admin_request(
-    method: &str,
-    url: String,
-    body: Option<String>,
-    token: &str,
-) -> hbb_common::ResultType<String> {
-    let method = method.to_owned();
-    let header = auth_header_json(token);
-    let log_method = method.clone();
-    let log_url = url.clone();
-    let raw =
-        tokio::task::spawn_blocking(move || crate::http_request_sync(url, method, body, header))
-            .await
-            .map_err(|e| hbb_common::anyhow::anyhow!("admin request task failed: {}", e))??;
-    let status_code = serde_json::from_str::<Value>(&raw)
-        .ok()
-        .and_then(|v| v.get("status_code").and_then(|s| s.as_u64()))
-        .unwrap_or(0);
-    parse_http_body(&raw).map(|body| {
-        log::info!(
-            "ad_ab_assign: {} {} -> http {}, body={}",
-            log_method,
-            log_url,
-            status_code,
-            short_log(&body)
-        );
-        body
-    })
-}
-
-async fn resolve_collection(api: &str, token: &str, name: &str) -> Option<CollectionRef> {
-    if let Some(cached) = read_collection_cache(name) {
-        log::info!(
-            "ad_ab_assign: cached collection for {} is user_id={}, collection_id={} (will re-check server)",
-            name,
-            cached.user_id,
-            cached.collection_id
-        );
-    }
-    let url = format!(
-        "{}/api/admin/address_book_collection/list?page=1&page_size=500",
-        api.trim_end_matches('/')
-    );
-    let body = match admin_request("get", url, None, token).await {
-        Ok(b) => b,
-        Err(e) => {
-            log::warn!("ad_ab_assign: не удалось получить список коллекций: {}", e);
-            return None;
-        }
-    };
-    let v: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!("ad_ab_assign: ответ коллекций не JSON: {} ({})", body, e);
-            return None;
-        }
-    };
-    if !api_ok(&body) {
-        log::warn!(
-            "ad_ab_assign: address_book_collection/list: {}",
-            v.get("message").and_then(|m| m.as_str()).unwrap_or(&body)
-        );
-        return None;
-    }
-    let list = v
-        .pointer("/data/list")
-        .or_else(|| v.get("list"))
-        .and_then(|l| l.as_array());
-    let Some(list) = list else {
-        log::warn!("ad_ab_assign: пустой список коллекций адресных книг");
-        return None;
-    };
-    for item in list {
-        let cname = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if cname.eq_ignore_ascii_case(name) {
-            let user_id = item.get("user_id").and_then(|n| n.as_u64()).unwrap_or(0);
-            let collection_id = item.get("id").and_then(|n| n.as_u64()).unwrap_or(0);
-            if user_id > 0 {
-                let found = CollectionRef {
-                    user_id,
-                    collection_id,
-                };
-                log::info!(
-                    "ad_ab_assign: collection found: name={}, user_id={}, collection_id={}",
-                    name,
-                    user_id,
-                    collection_id
-                );
-                write_collection_cache(name, found);
-                return Some(found);
-            }
-        }
-    }
-    if !LOGGED_NO_COLLECTION.swap(true, Ordering::SeqCst) {
-        let names: Vec<_> = list
-            .iter()
-            .filter_map(|i| i.get("name").and_then(|n| n.as_str()))
-            .collect();
-        log::warn!(
-            "ad_ab_assign: коллекция «{}» не найдена на сервере. Доступные: {:?}",
-            name,
-            names
-        );
-    }
-    None
-}
-
-fn read_collection_cache(name: &str) -> Option<CollectionRef> {
-    let s = config::Status::get(COLLECTION_CACHE_KEY);
-    let mut parts = s.split(':');
-    let cached_name = parts.next()?;
-    if !cached_name.eq_ignore_ascii_case(name) {
-        return None;
-    }
-    let user_id = parts.next()?.parse().ok()?;
-    let collection_id = parts.next()?.parse().ok()?;
-    if user_id == 0 {
-        return None;
-    }
-    Some(CollectionRef {
-        user_id,
-        collection_id,
-    })
-}
-
-fn write_collection_cache(name: &str, c: CollectionRef) {
-    config::Status::set(
-        COLLECTION_CACHE_KEY,
-        format!("{}:{}:{}", name, c.user_id, c.collection_id),
-    );
-}
-
-async fn find_existing_row(
-    api: &str,
-    token: &str,
-    peer_id: &str,
-    collection: CollectionRef,
-) -> Option<u64> {
-    let url = format!(
-        "{}/api/admin/address_book/list?page=1&page_size=10&user_id={}&collection_id={}&id={}",
-        api.trim_end_matches('/'),
-        collection.user_id,
-        collection.collection_id,
-        peer_id
-    );
-    let body = match admin_request("get", url, None, token).await {
-        Ok(body) => body,
-        Err(e) => {
-            log::warn!("ad_ab_assign: address_book/list request failed: {}", e);
-            return None;
-        }
-    };
-    let v: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!(
-                "ad_ab_assign: address_book/list response is not JSON: {} ({})",
-                body,
-                e
-            );
-            return None;
-        }
-    };
-    if !api_ok(&body) {
-        log::warn!(
-            "ad_ab_assign: address_book/list failed: {}",
-            v.get("message").and_then(|m| m.as_str()).unwrap_or(&body)
-        );
-        return None;
-    }
-    let list = v.pointer("/data/list").and_then(|l| l.as_array())?;
-    let row_id = list
-        .first()
-        .and_then(|i| i.get("row_id"))
-        .and_then(|n| n.as_u64());
-    log::info!(
-        "ad_ab_assign: existing rows for peer {} in collection {}: {}, row_id={:?}",
-        peer_id,
-        collection.collection_id,
-        list.len(),
-        row_id
-    );
-    row_id
-}
-
-async fn upsert_address_book_entry(
-    api: &str,
-    token: &str,
-    peer_id: &str,
-    alias: &str,
-    collection: CollectionRef,
-) -> hbb_common::ResultType<()> {
-    let api = api.trim_end_matches('/');
-    if let Some(row_id) = find_existing_row(api, token, peer_id, collection).await {
-        let url = format!("{}/api/admin/address_book/update", api);
-        let body = json!({
-            "row_id": row_id,
-            "id": peer_id,
-            "user_id": collection.user_id,
-            "collection_id": collection.collection_id,
-            "alias": alias,
-        })
-        .to_string();
-        log::info!(
-            "ad_ab_assign: update row_id={}, peer={}, user_id={}, collection_id={}, alias={}",
-            row_id,
-            peer_id,
-            collection.user_id,
-            collection.collection_id,
-            alias
-        );
-        let resp = admin_request("post", url, Some(body), token).await?;
-        if api_ok(&resp) {
-            return Ok(());
-        }
-        let msg = serde_json::from_str::<Value>(&resp)
-            .ok()
-            .and_then(|v| {
-                v.get("message")
-                    .and_then(|m| m.as_str())
-                    .map(|s| s.to_owned())
-            })
-            .unwrap_or(resp);
-        log::warn!("ad_ab_assign: update: {}", msg);
-        return Err(hbb_common::anyhow::anyhow!(msg));
-    }
-
-    let url = format!("{}/api/admin/address_book/create", api);
-    let username = crate::platform::get_active_username();
-    let hostname = crate::common::whoami_hostname();
-    let platform = crate::common::PLATFORM_WINDOWS;
-    let body = json!({
-        "id": peer_id,
-        "user_id": collection.user_id,
-        "collection_id": collection.collection_id,
-        "alias": alias,
-        "username": username.clone(),
-        "hostname": hostname.clone(),
-        "platform": platform,
-    })
-    .to_string();
-    log::info!(
-        "ad_ab_assign: create peer={}, user_id={}, collection_id={}, alias={}, username={}, hostname={}, platform={}",
-        peer_id,
-        collection.user_id,
-        collection.collection_id,
-        alias,
-        username,
-        hostname,
-        platform
-    );
-    let resp = admin_request("post", url, Some(body), token).await?;
-    if api_ok(&resp) {
-        return Ok(());
-    }
-    let msg = serde_json::from_str::<Value>(&resp)
-        .ok()
-        .and_then(|v| {
-            v.get("message")
-                .and_then(|m| m.as_str())
-                .map(|s| s.to_owned())
-        })
-        .unwrap_or(resp.clone());
-    if msg.contains("ItemExists") || msg.contains("exists") {
-        return Ok(());
-    }
-    log::warn!("ad_ab_assign: create: {}", msg);
-    Err(hbb_common::anyhow::anyhow!(msg))
-}
-
-/// Register this device in the shared address book (lejianwen rustdesk-api admin API).
+/// Register this device in the shared address book through the inventory portal.
 pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
-    let token = assign_api_token();
-    if token.is_empty() {
-        if !LOGGED_NO_TOKEN.swap(true, Ordering::SeqCst) {
-            log::info!("ad_ab_assign: токен не задан — авто-привязка к адресной книге выключена.");
-        }
-        return Ok(());
-    }
-
     if config::Config::no_register_device() {
         log::info!("ad_ab_assign: skip, device registration is disabled");
         return Ok(());
@@ -434,23 +95,26 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
 
     #[cfg(not(windows))]
     {
-        let _ = token;
         return Ok(());
     }
 
     #[cfg(windows)]
     {
+        let base = portal_base_url();
+        if base.is_empty() {
+            if !LOGGED_NO_PORTAL.swap(true, Ordering::SeqCst) {
+                log::info!(
+                    "ad_ab_assign: skip, inventory portal URL is not configured \
+                     (set inventory-report-url or rebuild with INVENTORY_REPORT_URL)"
+                );
+            }
+            return Ok(());
+        }
+
         let in_domain = crate::platform::is_target_ad_domain();
         let installed = crate::platform::is_installed();
         let active_user = crate::platform::get_active_username();
         let display_name = crate::platform::get_active_user_display_name();
-        log::info!(
-            "DBG748 H2/H3: checks: in_domain={}, installed={}, active_user=\"{}\", display_name={:?}",
-            in_domain,
-            installed,
-            active_user,
-            display_name
-        );
         if !in_domain {
             if !LOGGED_NOT_IN_DOMAIN.swap(true, Ordering::SeqCst) {
                 log::info!("ad_ab_assign: skip, this PC is not in target AD domain");
@@ -461,12 +125,6 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             if !LOGGED_NOT_INSTALLED.swap(true, Ordering::SeqCst) {
                 log::info!("ad_ab_assign: skip, RustDesk service is not installed");
             }
-            return Ok(());
-        }
-
-        let ab_name = address_book_name();
-        if ab_name.is_empty() {
-            log::info!("ad_ab_assign: skip, address book name is empty");
             return Ok(());
         }
 
@@ -483,74 +141,52 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             }
         };
 
-        let status_value = format!("{}:{}", ab_name, alias);
-        let last = config::Status::get(STATUS_KEY);
-        log::info!(
-            "DBG748 H4: alias=\"{}\", status_value=\"{}\", last_status=\"{}\", already_synced={}",
-            alias,
-            status_value,
-            last,
-            last == status_value
-        );
-        if last == status_value {
-            log::info!(
-                "ad_ab_assign: local status already synced as {}, revalidating server entry",
-                status_value
-            );
+        let peer_id = Config::get_id();
+        let status_value = format!("{}:{}", base, alias);
+        if config::Status::get(STATUS_KEY) == status_value {
+            // Already assigned; still revalidate periodically (no-op fast path).
         }
 
-        let mut api = crate::ui_interface::get_api_server();
-        if api.is_empty() {
-            api = app_build_config::DEFAULT_API_SERVER_FROM_BUILD.to_owned();
-        }
-        let is_public_api = api.is_empty() || crate::is_public(&api);
-        log::info!(
-            "DBG748 H3: api=\"{}\", is_public={}, peer_id={}",
-            api,
-            is_public_api,
-            Config::get_id()
-        );
-        if is_public_api {
-            if !LOGGED_API_NOT_READY.swap(true, Ordering::SeqCst) {
-                log::warn!("ad_ab_assign: api-server не настроен, value={}", api);
+        let url = format!("{}/api/v1/ad/assign", base);
+        let body = json!({
+            "rustdesk_id": peer_id,
+            "ad_domain": app_build_config::DEFAULT_AD_DOMAIN_FROM_BUILD,
+            "ad_user": active_user,
+            "display_name": alias,
+            "username": active_user,
+            "hostname": crate::common::whoami_hostname(),
+            "platform": "Windows",
+        })
+        .to_string();
+        let auth = format!("Authorization: Bearer {}", portal_token());
+        let resp = match crate::post_request(url, body, &auth).await {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("ad_ab_assign: portal request failed: {}", e);
+                return Ok(());
             }
-            return Ok(());
-        }
-        log::info!(
-            "ad_ab_assign: assigning peer={}, api={}, address_book={}, alias={}",
-            Config::get_id(),
-            api,
-            ab_name,
-            alias
-        );
-
-        let Some(collection) = resolve_collection(&api, token, &ab_name).await else {
-            return Ok(());
         };
 
-        let peer_id = Config::get_id();
-        match upsert_address_book_entry(&api, token, &peer_id, &alias, collection).await {
-            Ok(()) => {
+        let status = serde_json::from_str::<Value>(&resp)
+            .ok()
+            .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(|s| s.to_owned()))
+            .unwrap_or_default();
+        match status.as_str() {
+            "assigned" => {
                 config::Status::set(STATUS_KEY, status_value);
-                log::info!(
-                    "ad_ab_assign: устройство {} добавлено в «{}», alias «{}»",
-                    peer_id,
-                    ab_name,
-                    alias
-                );
+                log::info!("ad_ab_assign: устройство {} добавлено в адресную книгу", peer_id);
             }
-            Err(e) => log::warn!("ad_ab_assign: не удалось обновить адресную книгу: {}", e),
+            "skipped" => {
+                log::debug!("ad_ab_assign: portal skipped: {}", resp);
+            }
+            "error" => {
+                log::warn!("ad_ab_assign: portal error: {}", resp);
+            }
+            other => {
+                log::warn!("ad_ab_assign: неожиданный ответ портала: {} ({})", other, resp);
+            }
         }
     }
 
     Ok(())
-}
-
-fn short_log(s: &str) -> String {
-    const MAX: usize = 700;
-    if s.chars().count() <= MAX {
-        s.to_owned()
-    } else {
-        format!("{}...", s.chars().take(MAX).collect::<String>())
-    }
 }

@@ -77,7 +77,6 @@ env:
   RUSTDESK_API_SERVER: "https://rustdeskweb.corp.tatnefturs.ru"
   RUSTDESK_PRESET_ADDRESS_BOOK_NAME: "corp.tatnefturs.tatar"
   RUSTDESK_AD_DOMAIN: "corp.tatnefturs.tatar"
-  RUSTDESK_ASSIGN_API_TOKEN: "${{ inputs.desktop-ui-flavor == 'cashdesk' && '' || '696ccc9c6c5365f0b41f2d86db10f1e5' }}"
   FILE_NAME_PREFIX: "${{ inputs.desktop-ui-flavor == 'cashdesk' && 'TnursRemoteDesk_forcash' || 'tnursremotedesk' }}"
   FILE_NAME_VERSION_SEP: "${{ inputs.desktop-ui-flavor == 'cashdesk' && '_' || '-' }}"
 
@@ -406,6 +405,18 @@ jobs:
           files: |
             ./SignOutput/${{ env.FILE_NAME_PREFIX }}*.msi
             ./SignOutput/${{ env.FILE_NAME_PREFIX }}*.exe
+
+      - name: Upload build to inventory portal (pending approval)
+        if: env.UPLOAD_ARTIFACT == 'true' && vars.INVENTORY_PORTAL_URL != ''
+        shell: bash
+        env:
+          PORTAL_URL: ${{ vars.INVENTORY_PORTAL_URL }}
+          PORTAL_TOKEN: ${{ secrets.INVENTORY_CI_TOKEN }}
+          PORTAL_FLAVOR: ${{ inputs.desktop-ui-flavor == 'cashdesk' && 'cashdesk' || 'normal' }}
+        run: |
+          exe=$(ls ./SignOutput/${{ env.FILE_NAME_PREFIX }}*-${{ matrix.job.arch }}.exe | head -n1)
+          bash .github/scripts/upload-build-to-portal.sh \
+            "$PORTAL_URL" "$PORTAL_TOKEN" "$exe" "${{ env.VERSION }}" "$PORTAL_FLAVOR" "windows"
 
   # The fallback for the flutter version, we use Sciter for 32bit Windows.
   build-for-windows-sciter:

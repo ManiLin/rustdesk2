@@ -986,10 +986,23 @@ struct InventoryPortalUpdateMeta {
 /// Проверка обновления по `inventory-update-meta-url` или производному от `inventory-report-url` (только Windows / exe с портала).
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultType<()> {
-    let meta_url = config::Config::get_inventory_software_update_meta_url();
-    if meta_url.is_empty() {
+    let base_meta_url = config::Config::get_inventory_software_update_meta_url();
+    if base_meta_url.is_empty() {
         return Ok(());
     }
+    // Ask for the build of our flavor (normal/cashdesk); the portal serves only
+    // admin-approved builds.
+    let flavor = if crate::app_build_config::is_cashdesk_ui_build() {
+        "cashdesk"
+    } else {
+        "normal"
+    };
+    let meta_url = format!(
+        "{}{}flavor={}&platform=windows",
+        base_meta_url,
+        if base_meta_url.contains('?') { '&' } else { '?' },
+        flavor
+    );
     *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
 
     let proxy_conf = Config::get_socks();

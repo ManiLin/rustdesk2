@@ -13,16 +13,24 @@ type Device = {
   updated_at: string;
 };
 
-type DownloadAsset = {
-  available: boolean;
-  file_name: string | null;
-  file_size: number | null;
-  uploaded_at: string | null;
-  download_path: string;
-  published_version?: string | null;
+type Build = {
+  id: number;
+  flavor: string;
+  platform: string;
+  version: string;
+  file_name: string;
+  file_size: number;
+  sha256: string;
+  status: string;
+  uploaded_at: string;
+  approved_at?: string | null;
+  approved_by: string;
 };
 
 const TOKEN_KEY = "inv_portal_jwt";
+
+const FLAVORS = ["normal", "cashdesk"];
+const PLATFORMS = ["windows", "linux", "macos", "android"];
 
 function apiBase(): string {
   return import.meta.env.PROD ? "" : "";
@@ -40,9 +48,19 @@ function formatBytes(value: number | null): string {
   return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function absoluteDownloadUrl(path: string | null, available: boolean): string {
-  if (!path || !available || typeof window === "undefined") return "";
-  return new URL(path, window.location.origin).toString();
+function statusLabel(status: string): string {
+  switch (status) {
+    case "published":
+      return "Опубликована";
+    case "pending":
+      return "Ожидает";
+    case "rejected":
+      return "Отклонена";
+    case "archived":
+      return "Архив";
+    default:
+      return status;
+  }
 }
 
 function IconMonitor() {
@@ -63,30 +81,11 @@ function IconSearch() {
   );
 }
 
-/** Иконки по мотивам ответа MCP Magic (lucide-подобная геометрия), без новой зависимости */
 function IconUpload() {
   return (
     <svg className="fluent-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
       <path d="M12 16V4m0 0l4 4m-4-4L8 8" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconCopy() {
-  return (
-    <svg className="fluent-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconExternalLink() {
-  return (
-    <svg className="fluent-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M18 13v6a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h6" strokeLinecap="round" />
-      <path d="M15 3h6v6M10 14L21 3" strokeLinecap="round" />
     </svg>
   );
 }
@@ -101,22 +100,25 @@ export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [listErr, setListErr] = useState("");
   const [q, setQ] = useState("");
-  const [downloadAsset, setDownloadAsset] = useState<DownloadAsset | null>(null);
-  const [downloadErr, setDownloadErr] = useState("");
-  const [downloadMsg, setDownloadMsg] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [selectedUploadName, setSelectedUploadName] = useState("");
-  const [releaseVersion, setReleaseVersion] = useState("");
+
+  const [builds, setBuilds] = useState<Build[]>([]);
+  const [buildsErr, setBuildsErr] = useState("");
+  const [buildsMsg, setBuildsMsg] = useState("");
+  const [buildVersion, setBuildVersion] = useState("");
+  const [buildFlavor, setBuildFlavor] = useState("normal");
+  const [buildPlatform, setBuildPlatform] = useState("windows");
+  const [buildUploading, setBuildUploading] = useState(false);
+  const [selectedBuildName, setSelectedBuildName] = useState("");
   const [deletingId, setDeletingId] = useState("");
-  const rustdeskFileInputRef = useRef<HTMLInputElement>(null);
+  const buildFileInputRef = useRef<HTMLInputElement>(null);
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setDevices([]);
-    setDownloadAsset(null);
-    setDownloadErr("");
-    setDownloadMsg("");
+    setBuilds([]);
+    setBuildsErr("");
+    setBuildsMsg("");
   }, []);
 
   const login = async (e: React.FormEvent) => {
@@ -143,31 +145,6 @@ export default function App() {
     }
     setLoading(false);
   };
-
-  const loadDownloadAsset = useCallback(async () => {
-    if (!token) return;
-    setDownloadErr("");
-    try {
-      const r = await fetch(`${apiBase()}/api/v1/admin/downloads/rustdesk`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (r.status === 401) {
-        logout();
-        return;
-      }
-      if (!r.ok) {
-        setDownloadErr("Не удалось получить данные по файлу RustDesk");
-        return;
-      }
-      const asset = (await r.json()) as DownloadAsset;
-      setDownloadAsset(asset);
-      if (asset.published_version) {
-        setReleaseVersion(asset.published_version);
-      }
-    } catch {
-      setDownloadErr("Ошибка сети при загрузке данных файла");
-    }
-  }, [token, logout]);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -224,42 +201,54 @@ export default function App() {
     [token, logout, load]
   );
 
+  const loadBuilds = useCallback(async () => {
+    if (!token) return;
+    setBuildsErr("");
+    try {
+      const r = await fetch(`${apiBase()}/api/v1/admin/builds`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.status === 401) {
+        logout();
+        return;
+      }
+      if (!r.ok) {
+        setBuildsErr("Не удалось получить список сборок");
+        return;
+      }
+      setBuilds((await r.json()) as Build[]);
+    } catch {
+      setBuildsErr("Ошибка сети при загрузке сборок");
+    }
+  }, [token, logout]);
+
   useEffect(() => {
     if (!token) return;
     void load();
-    void loadDownloadAsset();
-  }, [token, load, loadDownloadAsset]);
+    void loadBuilds();
+  }, [token, load, loadBuilds]);
 
-  const uploadBinary = useCallback(
+  const uploadBuild = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !token) return;
-
-      setDownloadErr("");
-      setDownloadMsg("");
-
-      if (!file.name.toLowerCase().endsWith(".exe")) {
-        setSelectedUploadName("");
-        setDownloadErr("Можно загружать только файлы .exe");
-        e.target.value = "";
-        return;
-      }
-
-      const ver = releaseVersion.trim();
+      setBuildsErr("");
+      setBuildsMsg("");
+      const ver = buildVersion.trim();
       if (!ver) {
-        setDownloadErr("Укажите версию сборки (например 1.4.7) — она нужна для автообновления клиентов");
+        setBuildsErr("Укажите версию сборки (например 1.4.9)");
         e.target.value = "";
         return;
       }
-
-      setSelectedUploadName(file.name);
+      setSelectedBuildName(file.name);
       const form = new FormData();
       form.append("version", ver);
+      form.append("flavor", buildFlavor);
+      form.append("platform", buildPlatform);
       form.append("file", file);
-      setUploading(true);
-
+      setBuildUploading(true);
       try {
-        const r = await fetch(`${apiBase()}/api/v1/admin/downloads/rustdesk`, {
+        const r = await fetch(`${apiBase()}/api/v1/admin/builds`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
           body: form,
@@ -271,45 +260,77 @@ export default function App() {
         if (!r.ok) {
           const errText = await r.text();
           if (r.status === 413) {
-            setDownloadErr("Файл слишком большой для загрузки");
-          } else if (errText === "only .exe files are allowed") {
-            setDownloadErr("Можно загружать только файлы .exe");
-          } else if (errText === "version is required") {
-            setDownloadErr("Укажите версию сборки");
+            setBuildsErr("Файл слишком большой для загрузки");
           } else {
-            setDownloadErr("Не удалось загрузить rustdesk.exe");
+            setBuildsErr(errText || "Не удалось загрузить сборку");
           }
           return;
         }
-        const nextAsset = (await r.json()) as DownloadAsset;
-        setDownloadAsset(nextAsset);
-        setDownloadMsg("Файл загружен. Ссылка для скачивания готова.");
+        setBuildsMsg("Сборка загружена и ожидает подтверждения администратора.");
+        await loadBuilds();
       } catch {
-        setDownloadErr("Ошибка сети при загрузке файла");
+        setBuildsErr("Ошибка сети при загрузке файла");
       } finally {
-        setUploading(false);
+        setBuildUploading(false);
         e.target.value = "";
       }
     },
-    [token, logout, releaseVersion]
+    [token, logout, buildVersion, buildFlavor, buildPlatform, loadBuilds]
   );
 
-  const downloadUrl = useMemo(
-    () => absoluteDownloadUrl(downloadAsset?.download_path ?? null, Boolean(downloadAsset?.available)),
-    [downloadAsset]
+  const approveBuild = useCallback(
+    async (id: number) => {
+      if (!token) return;
+      setBuildsErr("");
+      setBuildsMsg("");
+      try {
+        const r = await fetch(`${apiBase()}/api/v1/admin/builds/${id}/approve`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.status === 401) {
+          logout();
+          return;
+        }
+        if (!r.ok) {
+          setBuildsErr("Не удалось подтвердить сборку");
+          return;
+        }
+        setBuildsMsg("Сборка подтверждена и будет раздаваться клиентам.");
+        await loadBuilds();
+      } catch {
+        setBuildsErr("Ошибка сети");
+      }
+    },
+    [token, logout, loadBuilds]
   );
 
-  const copyDownloadUrl = useCallback(async () => {
-    if (!downloadUrl) return;
-    setDownloadErr("");
-    setDownloadMsg("");
-    try {
-      await navigator.clipboard.writeText(downloadUrl);
-      setDownloadMsg("Ссылка скопирована.");
-    } catch {
-      setDownloadErr("Не удалось скопировать ссылку");
-    }
-  }, [downloadUrl]);
+  const rejectBuild = useCallback(
+    async (id: number) => {
+      if (!token) return;
+      setBuildsErr("");
+      setBuildsMsg("");
+      try {
+        const r = await fetch(`${apiBase()}/api/v1/admin/builds/${id}/reject`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.status === 401) {
+          logout();
+          return;
+        }
+        if (!r.ok) {
+          setBuildsErr("Не удалось отклонить сборку");
+          return;
+        }
+        setBuildsMsg("Сборка отклонена.");
+        await loadBuilds();
+      } catch {
+        setBuildsErr("Ошибка сети");
+      }
+    },
+    [token, logout, loadBuilds]
+  );
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -382,116 +403,151 @@ export default function App() {
           <div className="fluent-card fluent-upload-card">
             <div className="fluent-upload-header">
               <div>
-                <h2>Раздача RustDesk</h2>
+                <h2>Сборки и обновления</h2>
                 <p>
-                  Загрузите актуальный <span className="mono">rustdesk.exe</span>, укажите номер версии — клиенты RustDesk с
-                  включённой проверкой обновлений и тем же URL портала, что и для отчётов, смогут подтянуть эту сборку
-                  автоматически (только Windows, <span className="mono">.exe</span>). Ссылку ниже можно по-прежнему
-                  раздавать для ручной загрузки.
+                  Загрузите новую сборку и укажите <span className="mono">flavor</span> (<span className="mono">normal</span>{" "}
+                  или <span className="mono">cashdesk</span>) и версию. Сборка получит статус «Ожидает» и будет раздаваться
+                  клиентам <strong>только после подтверждения</strong>. Автоматически её может залить и CI
+                  (<span className="mono">POST /api/v1/ci/builds</span>).
                 </p>
               </div>
-              <span className="fluent-badge" title="Статус файла">
-                {downloadAsset?.available ? "Готово" : "Нет файла"}
+              <span className="fluent-badge" title="Всего сборок">
+                {builds.length}
               </span>
-            </div>
-
-            <div className="fluent-upload-version-block">
-              <label className="fluent-upload-field-label" htmlFor="rustdesk-release-version">
-                Версия этой сборки
-              </label>
-              <input
-                id="rustdesk-release-version"
-                className="fluent-text-input mono fluent-upload-version-input"
-                type="text"
-                value={releaseVersion}
-                onChange={(e) => setReleaseVersion(e.target.value)}
-                placeholder="Например 1.4.7"
-                disabled={uploading}
-                autoComplete="off"
-              />
-              <p className="fluent-upload-version-hint">
-                Должна быть <strong>выше</strong>, чем версия в собранном клиенте, иначе обновление не предложится.
-              </p>
             </div>
 
             <div className="fluent-upload-grid">
               <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label" id="rustdesk-upload-label">
-                  Новый файл
-                </span>
-                <div className="fluent-upload-row" role="group" aria-labelledby="rustdesk-upload-label">
+                <span className="fluent-upload-field-label">Версия</span>
+                <input
+                  className="fluent-text-input mono"
+                  type="text"
+                  value={buildVersion}
+                  onChange={(e) => setBuildVersion(e.target.value)}
+                  placeholder="Например 1.4.9"
+                  disabled={buildUploading}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">Flavor</span>
+                <select
+                  className="fluent-text-input"
+                  value={buildFlavor}
+                  onChange={(e) => setBuildFlavor(e.target.value)}
+                  disabled={buildUploading}
+                >
+                  {FLAVORS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">Платформа</span>
+                <select
+                  className="fluent-text-input"
+                  value={buildPlatform}
+                  onChange={(e) => setBuildPlatform(e.target.value)}
+                  disabled={buildUploading}
+                >
+                  {PLATFORMS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="fluent-upload-field">
+                <span className="fluent-upload-field-label">Файл</span>
+                <div className="fluent-upload-row">
                   <input
-                    ref={rustdeskFileInputRef}
-                    id="rustdesk-upload"
+                    ref={buildFileInputRef}
                     className="fluent-file-input"
                     type="file"
-                    accept=".exe,application/octet-stream"
-                    onChange={uploadBinary}
-                    disabled={uploading}
-                    aria-label="Выбор файла rustdesk.exe"
+                    accept=".exe,.msi,.deb,.rpm,.zst,.apk,.dmg,.pkg,application/octet-stream"
+                    onChange={uploadBuild}
+                    disabled={buildUploading}
                   />
                   <button
                     type="button"
                     className="fluent-btn fluent-btn-secondary fluent-upload-pick"
-                    disabled={uploading}
-                    onClick={() => rustdeskFileInputRef.current?.click()}
+                    disabled={buildUploading}
+                    onClick={() => buildFileInputRef.current?.click()}
                   >
                     <IconUpload />
-                    {uploading ? "Загрузка…" : "Выбрать файл"}
+                    {buildUploading ? "Загрузка…" : "Выбрать файл"}
                   </button>
-                  <div className="fluent-file-name-plate mono" title={selectedUploadName || undefined}>
-                    {selectedUploadName || "Файл не выбран"}
+                  <div className="fluent-file-name-plate mono" title={selectedBuildName || undefined}>
+                    {selectedBuildName || "Файл не выбран"}
                   </div>
                 </div>
               </div>
-
-              <div className="fluent-upload-field">
-                <span className="fluent-upload-field-label" id="rustdesk-link-label">
-                  Публичная ссылка
-                </span>
-                <div className="fluent-upload-row" role="group" aria-labelledby="rustdesk-link-label">
-                  <input
-                    id="rustdesk-download-link"
-                    className="fluent-text-input mono fluent-upload-link-input"
-                    type="text"
-                    readOnly
-                    value={downloadUrl}
-                    placeholder="Загрузите файл, чтобы получить ссылку"
-                  />
-                  <button
-                    type="button"
-                    className="fluent-btn fluent-btn-secondary fluent-upload-action"
-                    onClick={() => void copyDownloadUrl()}
-                    disabled={!downloadUrl}
-                    title="Копировать ссылку"
-                  >
-                    <IconCopy />
-                    <span className="fluent-upload-action-text">Копировать</span>
-                  </button>
-                  <a
-                    className={`fluent-btn fluent-btn-secondary fluent-upload-action${downloadUrl ? "" : " is-disabled"}`}
-                    href={downloadUrl || undefined}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-disabled={!downloadUrl}
-                    title="Открыть ссылку"
-                  >
-                    <IconExternalLink />
-                    <span className="fluent-upload-action-text">Открыть</span>
-                  </a>
-                </div>
-              </div>
-
-              <div className="fluent-upload-meta fluent-upload-meta-full">
-                <span>Версия на портале: {downloadAsset?.published_version ?? "—"}</span>
-                <span>Файл: {downloadAsset?.file_name ?? "—"}</span>
-                <span>Размер: {formatBytes(downloadAsset?.file_size ?? null)}</span>
-                <span>Обновлён: {downloadAsset?.uploaded_at ?? "—"}</span>
-              </div>
             </div>
 
-            {downloadErr ? <div className="fluent-error">{downloadErr}</div> : null}
-            {downloadMsg ? <div className="fluent-success">{downloadMsg}</div> : null}
+            {buildsErr ? <div className="fluent-error">{buildsErr}</div> : null}
+            {buildsMsg ? <div className="fluent-success">{buildsMsg}</div> : null}
+
+            {builds.length === 0 ? (
+              <div className="fluent-empty">Сборок пока нет.</div>
+            ) : (
+              <div className="fluent-table-wrap">
+                <table className="fluent-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Flavor</th>
+                      <th>Платформа</th>
+                      <th>Версия</th>
+                      <th>Файл</th>
+                      <th>Размер</th>
+                      <th>Статус</th>
+                      <th>Загружена</th>
+                      <th>Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {builds.map((b) => (
+                      <tr key={b.id}>
+                        <td className="mono">{b.id}</td>
+                        <td className="mono">{b.flavor}</td>
+                        <td className="mono">{b.platform}</td>
+                        <td className="mono">{b.version}</td>
+                        <td className="mono" title={b.sha256 ? `sha256: ${b.sha256}` : undefined}>
+                          {b.file_name}
+                        </td>
+                        <td>{formatBytes(b.file_size)}</td>
+                        <td>{statusLabel(b.status)}</td>
+                        <td className="mono">{b.uploaded_at}</td>
+                        <td>
+                          {b.status === "pending" ? (
+                            <div className="fluent-btn-group">
+                              <button
+                                type="button"
+                                className="fluent-btn fluent-btn-primary"
+                                onClick={() => void approveBuild(b.id)}
+                              >
+                                Подтвердить
+                              </button>
+                              <button
+                                type="button"
+                                className="fluent-btn fluent-btn-secondary"
+                                onClick={() => void rejectBuild(b.id)}
+                              >
+                                Отклонить
+                              </button>
+                            </div>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="win11-commandbar">
@@ -515,7 +571,7 @@ export default function App() {
                 className="fluent-btn fluent-btn-secondary"
                 onClick={() => {
                   void load();
-                  void loadDownloadAsset();
+                  void loadBuilds();
                 }}
               >
                 Обновить

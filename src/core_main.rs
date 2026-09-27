@@ -545,10 +545,10 @@ pub fn core_main() -> Option<Vec<String>> {
                 let token = if pos < max {
                     args[pos + 1].to_owned()
                 } else {
-                    crate::app_build_config::DEFAULT_ASSIGN_API_TOKEN_FROM_BUILD.to_owned()
+                    String::new()
                 };
                 if token.is_empty() {
-                    println!("--token is required (or rebuild with RUSTDESK_ASSIGN_API_TOKEN)!");
+                    println!("--token is required!");
                 } else {
                     let id = crate::ipc::get_id();
                     let uuid = crate::encode64(hbb_common::get_uuid());

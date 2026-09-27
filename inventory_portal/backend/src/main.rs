@@ -806,7 +806,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/report", post(report_handler))
         .route("/api/v1/auth/login", post(login_handler))
         .route("/api/v1/devices", get(devices_handler))
-        .route("/api/v1/devices/:id", axum::routing::delete(delete_device_handler))
+        .route("/api/v1/devices/{id}", axum::routing::delete(delete_device_handler))
         .route(
             "/api/v1/admin/downloads/rustdesk",
             get(admin_download_info_handler).post(

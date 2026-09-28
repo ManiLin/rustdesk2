@@ -490,7 +490,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget buildHelpCards(String updateUrl) {
-    if (!bind.isCustomClient() &&
+    final isInventoryPortalUpdate =
+        updateUrl.contains('/api/v1/downloads/rustdesk/windows/latest');
+    final canShowUpdate = !bind.isCustomClient() ||
+        (isWindows && isInventoryPortalUpdate);
+    if (canShowUpdate &&
         updateUrl.isNotEmpty &&
         !isCardClosed &&
         bind.mainUriPrefixSync().contains('rustdesk')) {
@@ -511,8 +515,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           btnText,
           onPressed,
           closeButton: true,
-          help: isToUpdate ? 'Changelog' : null,
-          link: isToUpdate
+          help: isToUpdate && !isInventoryPortalUpdate ? 'Changelog' : null,
+          link: isToUpdate && !isInventoryPortalUpdate
               ? 'https://github.com/rustdesk/rustdesk/releases/tag/${bind.mainGetNewVersion()}'
               : null);
     }

@@ -747,13 +747,20 @@ pub fn current_is_wayland() -> bool {
 
 #[inline]
 pub fn get_new_version() -> String {
-    (*SOFTWARE_UPDATE_URL
+    let portal_version = crate::common::SOFTWARE_UPDATE_PORTAL_VERSION
+        .lock()
+        .unwrap()
+        .clone();
+    if !portal_version.is_empty() {
+        return portal_version;
+    }
+    SOFTWARE_UPDATE_URL
         .lock()
         .unwrap()
         .rsplit('/')
         .next()
-        .unwrap_or(""))
-    .to_string()
+        .unwrap_or("")
+        .to_string()
 }
 
 #[inline]

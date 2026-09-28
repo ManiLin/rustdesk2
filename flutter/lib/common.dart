@@ -4132,7 +4132,10 @@ void earlyAssert() {
 
 void checkUpdate() {
   if (!isWeb) {
-    if (!bind.isCustomClient()) {
+    // Custom Windows clients use the inventory portal's update channel. The
+    // Rust side selects that channel for custom builds; other custom platforms
+    // still have no supported software-update source.
+    if (!bind.isCustomClient() || isWindows) {
       platformFFI.registerEventHandler(
           kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
           (Map<String, dynamic> evt) async {

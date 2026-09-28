@@ -326,6 +326,9 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
 }
 
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {
+    if is_inventory_portal_update_url(url) {
+        return Some(std::env::temp_dir().join("tnurs-inventory-update.exe"));
+    }
     let filename = url.split('/').last()?;
     Some(std::env::temp_dir().join(filename))
 }

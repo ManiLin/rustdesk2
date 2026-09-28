@@ -2,12 +2,6 @@ name: Flutter Tag Build
 
 on:
   workflow_dispatch:
-    inputs:
-      inventory-report-url:
-        description: "URL отчётов (POST …/api/v1/report). Пусто — не зашивать"
-        required: false
-        default: ""
-        type: string
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -22,7 +16,7 @@ jobs:
     with:
       upload-artifact: true
       upload-tag: ${{ github.ref_name }}
-      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}
+      inventory-report-url: "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/report"
 
   run-flutter-tag-cashdesk-build:
     uses: ./.github/workflows/flutter-build.yml
@@ -33,4 +27,4 @@ jobs:
       artifact-prefix: "cashdesk-"
       conn-type: "incoming"
       desktop-ui-flavor: "cashdesk"
-      inventory-report-url: ${{ github.event.inputs.inventory-report-url || '' }}
+      inventory-report-url: "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/report"

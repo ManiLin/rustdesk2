@@ -14,9 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const NAME: &'static str = "display";
 
-#[cfg(windows)]
-const DUMMY_DISPLAY_SIDE_MAX_SIZE: usize = 1024;
-
 struct ChangedResolution {
     original: (i32, i32),
     changed: (i32, i32),
@@ -395,26 +392,11 @@ pub fn get_primary_2(all: &Vec<Display>) -> usize {
 #[inline]
 #[cfg(windows)]
 fn no_displays(displays: &Vec<Display>) -> bool {
-    let display_len = displays.len();
-    if display_len == 0 {
-        true
-    } else if display_len == 1 {
-        let display = &displays[0];
-        if display.width() > DUMMY_DISPLAY_SIDE_MAX_SIZE
-            || display.height() > DUMMY_DISPLAY_SIDE_MAX_SIZE
-        {
-            return false;
-        }
-        let any_real = crate::platform::resolutions(&display.name())
-            .iter()
-            .any(|r| {
-                (r.height as usize) > DUMMY_DISPLAY_SIDE_MAX_SIZE
-                    || (r.width as usize) > DUMMY_DISPLAY_SIDE_MAX_SIZE
-            });
-        !any_real
-    } else {
-        false
-    }
+    // A low-resolution physical display (common on POS terminals) is still a
+    // real display. Treating it as a dummy can plug in a virtual monitor on
+    // login and interfere with touch input. Only create a headless display
+    // when Windows reports no displays at all.
+    displays.is_empty()
 }
 
 #[inline]

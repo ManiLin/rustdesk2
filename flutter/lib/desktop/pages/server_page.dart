@@ -1019,22 +1019,23 @@ class _CmControlPanel extends StatelessWidget {
             textColor: Colors.white,
           ),
         ),
-        Row(
-          children: [
-            Expanded(
-              child: buildButton(context,
-                  color: Colors.redAccent,
-                  onClick: handleDisconnect,
-                  text: 'Disconnect',
-                  icon: Icon(
-                    Icons.link_off_rounded,
-                    color: Colors.white,
-                    size: 14,
-                  ),
-                  textColor: Colors.white),
-            ),
-          ],
-        )
+        if (!isCashdeskBuild)
+          Row(
+            children: [
+              Expanded(
+                child: buildButton(context,
+                    color: Colors.redAccent,
+                    onClick: handleDisconnect,
+                    text: 'Disconnect',
+                    icon: Icon(
+                      Icons.link_off_rounded,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    textColor: Colors.white),
+              ),
+            ],
+          )
       ],
     ).marginOnly(bottom: buttonBottomMargin);
   }

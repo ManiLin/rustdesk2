@@ -1,6 +1,6 @@
 pkgname=rustdesk
 pkgver=1.4.9
-pkgrel=2
+pkgrel=4
 epoch=
 pkgdesc=""
 arch=('x86_64')

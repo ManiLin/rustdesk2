@@ -492,12 +492,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget buildHelpCards(String updateUrl) {
     final isInventoryPortalUpdate =
         updateUrl.contains('/api/v1/downloads/rustdesk/windows/latest');
+    final supportsUpdateUri =
+        isInventoryPortalUpdate ||
+        bind.mainUriPrefixSync().contains('rustdesk');
     final canShowUpdate = !bind.isCustomClient() ||
         (isWindows && isInventoryPortalUpdate);
     if (canShowUpdate &&
         updateUrl.isNotEmpty &&
         !isCardClosed &&
-        bind.mainUriPrefixSync().contains('rustdesk')) {
+        supportsUpdateUri) {
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
       String btnText = isToUpdate ? 'Update' : 'Download';
       GestureTapCallback onPressed = () async {

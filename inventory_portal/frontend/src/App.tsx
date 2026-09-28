@@ -21,6 +21,8 @@ type Build = {
   id: number;
   flavor: string;
   platform: string;
+  artifact_type: string;
+  architecture: string;
   version: string;
   file_name: string;
   file_size: number;
@@ -183,6 +185,7 @@ export default function App() {
   const [buildVersion, setBuildVersion] = useState("");
   const [buildFlavor, setBuildFlavor] = useState("normal");
   const [buildPlatform, setBuildPlatform] = useState("windows");
+  const [buildArchitecture, setBuildArchitecture] = useState("x86_64");
   const [buildFile, setBuildFile] = useState<File | null>(null);
   const [serverName, setServerName] = useState("");
   const [serverHost, setServerHost] = useState("");
@@ -301,6 +304,7 @@ export default function App() {
     form.append("version", buildVersion.trim());
     form.append("flavor", buildFlavor);
     form.append("platform", buildPlatform);
+    form.append("architecture", buildPlatform === "windows" ? buildArchitecture : "");
     form.append("file", buildFile);
     setBusyId("upload");
     setError("");
@@ -417,7 +421,7 @@ export default function App() {
     return (
       <main className="login-shell">
         <form className="login-card surface-card" onSubmit={login}>
-          <h1>Вход в портал</h1>
+          <h1>Вход в TnursRemoteDeskWebApi</h1>
           <p className="supporting-text">Введите пароль администратора, чтобы управлять устройствами и сборками.</p>
           <md-outlined-text-field
             label="Пароль администратора"
@@ -440,10 +444,10 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="top-app-bar">
-        <button className="brand-button" type="button" onClick={() => setPage("devices")} aria-label="На главную">
-          <span className="brand-mark">R</span><span>RustDesk</span>
+        <button className="brand-button" type="button" onClick={() => setPage("devices")} aria-label="TnursRemoteDeskWebApi — на главную">
+          <img className="brand-mark" src="/managment/favicon.ico" alt="" /><span className="brand-name">TnursRemoteDeskWebApi</span>
         </button>
-        <span className="top-app-title">Портал учёта</span>
+        <span className="top-app-title">Панель управления</span>
         <div className="top-actions">
           <OutlinedButton onClick={() => void loadData()}>Обновить</OutlinedButton>
           <md-text-button onClick={logout}>Выйти</md-text-button>
@@ -517,6 +521,7 @@ export default function App() {
                       <md-outlined-text-field label="Версия" placeholder="Например, 1.4.9" required value={buildVersion} onInput={(event: React.FormEvent<HTMLElement>) => setBuildVersion((event.currentTarget as HTMLInputElement).value)} />
                       <md-outlined-select label="Канал" value={buildFlavor} onChange={(event: React.FormEvent<HTMLElement>) => setBuildFlavor((event.currentTarget as HTMLSelectElement).value)}>{FLAVORS.map((flavor) => <md-select-option key={flavor} value={flavor}><div slot="headline">{flavor}</div></md-select-option>)}</md-outlined-select>
                       <md-outlined-select label="Платформа" value={buildPlatform} onChange={(event: React.FormEvent<HTMLElement>) => setBuildPlatform((event.currentTarget as HTMLSelectElement).value)}>{PLATFORMS.map((platform) => <md-select-option key={platform} value={platform}><div slot="headline">{platform}</div></md-select-option>)}</md-outlined-select>
+                      {buildPlatform === "windows" && <md-outlined-select label="Архитектура" value={buildArchitecture} onChange={(event: React.FormEvent<HTMLElement>) => setBuildArchitecture((event.currentTarget as HTMLSelectElement).value)}><md-select-option value="x86_64"><div slot="headline">x86_64</div></md-select-option><md-select-option value="aarch64"><div slot="headline">ARM64</div></md-select-option><md-select-option value="x86"><div slot="headline">x86</div></md-select-option></md-outlined-select>}
                       <label className="native-field file-field"><span>Файл сборки</span><input type="file" accept=".exe,.msi,.deb,.rpm,.zst,.apk,.dmg,.pkg,.appimage,.gz" onChange={(event) => setBuildFile(event.target.files?.[0] ?? null)} required /></label>
                       <div className="form-actions"><FilledButton type="submit" disabled={busyId === "upload"}>{busyId === "upload" ? "Загрузка…" : "Загрузить на проверку"}</FilledButton></div>
                     </form>
@@ -525,7 +530,7 @@ export default function App() {
                     <div className="section-heading"><div><h2>История сборок</h2><p>Только сборки «Ожидают проверки» можно подтвердить или отклонить.</p></div></div>
                     {builds.length === 0 ? <div className="empty-state">Сборок пока нет.</div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Сборка</th><th>Канал</th><th>Платформа</th><th>Файл и размер</th><th>Статус</th><th>Загружена</th><th>Действия</th></tr></thead><tbody>
                       {builds.map((build) => <tr key={build.id}>
-                        <td><strong>{build.version}</strong><span className="secondary-cell">#{build.id}</span></td><td>{build.flavor}</td><td>{build.platform}</td><td>{build.file_name}<span className="secondary-cell">{formatBytes(build.file_size)}</span></td><td><StatusPill status={build.status} /></td><td>{build.uploaded_at}</td>
+                        <td><strong>{build.version}</strong><span className="secondary-cell">#{build.id}</span></td><td>{build.flavor}</td><td>{build.platform}</td><td>{build.file_name}<span className="secondary-cell">{build.artifact_type}{build.architecture ? ` · ${build.architecture}` : ""} · {formatBytes(build.file_size)}</span></td><td><StatusPill status={build.status} /></td><td>{build.uploaded_at}</td>
                         <td>{build.status === "pending" ? <div className="row-actions"><md-filled-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "approve")}>Опубликовать</md-filled-button><md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "reject")}>Отклонить</md-outlined-button></div> : "—"}</td>
                       </tr>)}
                     </tbody></table></div>}

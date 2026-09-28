@@ -997,11 +997,22 @@ pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultTy
     } else {
         "normal"
     };
+    let architecture = match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        "x86" => "x86",
+        _ => std::env::consts::ARCH,
+    };
     let meta_url = format!(
-        "{}{}flavor={}&platform=windows",
+        "{}{}flavor={}&platform=windows&architecture={}",
         base_meta_url,
-        if base_meta_url.contains('?') { '&' } else { '?' },
-        flavor
+        if base_meta_url.contains('?') {
+            '&'
+        } else {
+            '?'
+        },
+        flavor,
+        architecture
     );
     *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
 

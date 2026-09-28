@@ -1,7 +1,7 @@
 services:
   backend:
     build: ./backend
-    container_name: inv-portal-api
+    container_name: TnursRemoteDeskWebApi
     environment:
       DATABASE_URL: sqlite:/data/inventory.db?mode=rwc
       # Значения подставляются из файла `.env` в этой же папке (или из окружения shell).
@@ -13,10 +13,11 @@ services:
       # AD -> shared address book (rustdeskweb token lives only here, never on clients).
       RUSTDESKWEB_API_URL: ${RUSTDESKWEB_API_URL:-https://tnremdeskapi.pxy2.tatnefturs.ru}
       RUSTDESKWEB_API_TOKEN: ${RUSTDESKWEB_API_TOKEN}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tnremdeskapi.pxy2.tatnefturs.ru}
       AD_DOMAIN: ${AD_DOMAIN:-corp.tatnefturs.tatar}
       PRESET_ADDRESS_BOOK_NAME: ${PRESET_ADDRESS_BOOK_NAME:-corp.tatnefturs.tatar}
       BIND_ADDR: 0.0.0.0:8080
-      RUST_LOG: inventory_portal_api=info,tower_http=info
+      RUST_LOG: tnurs_remotedesk_web_api=info,tower_http=info
     volumes:
       - inv_data:/data
     expose:
@@ -25,7 +26,7 @@ services:
 
   frontend:
     build: ./frontend
-    container_name: inv-portal-web
+    container_name: TnursRemoteDeskWebApiWeb
     ports:
       - "${PORT:-1026}:80"
     depends_on:

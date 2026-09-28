@@ -7,6 +7,7 @@
 #
 # <flavor>   normal | cashdesk
 # <platform> windows | linux | macos | android
+# <architecture> x86_64 | aarch64 | x86 (optional)
 #
 # The portal computes and stores the sha256 itself.
 set -euo pipefail
@@ -17,6 +18,7 @@ FILE="${3:?file is required}"
 VERSION="${4:?version is required}"
 FLAVOR="${5:-normal}"
 PLATFORM="${6:-windows}"
+ARCHITECTURE="${7:-}"
 
 if [ ! -f "$FILE" ]; then
   echo "upload-build-to-portal: file not found: $FILE" >&2
@@ -29,6 +31,7 @@ response="$(curl -sS -X POST "${PORTAL_URL%/}/api/v1/ci/builds" \
   -F "version=${VERSION}" \
   -F "flavor=${FLAVOR}" \
   -F "platform=${PLATFORM}" \
+  -F "architecture=${ARCHITECTURE}" \
   -F "file=@${FILE}" \
   --write-out $'\n%{http_code}')"
 http_code="${response##*$'\n'}"

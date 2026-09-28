@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: RustDesk Inventory Portal API
+  title: TnursRemoteDeskWebApi
   version: 1.0.0
   description: >-
     API v1 for RustDesk device reports, administrator workflows, server registry,
@@ -190,6 +190,7 @@ paths:
                 version: { type: string }
                 flavor: { type: string, enum: [normal, cashdesk] }
                 platform: { type: string, enum: [windows, linux, macos, android] }
+                architecture: { type: string, enum: [x86_64, aarch64, x86] }
                 sha256: { type: string, description: Optional client hash verified by the server }
                 file: { type: string, format: binary }
       responses:
@@ -241,6 +242,7 @@ paths:
                 version: { type: string }
                 flavor: { type: string, enum: [normal, cashdesk] }
                 platform: { type: string, enum: [windows, linux, macos, android] }
+                architecture: { type: string, enum: [x86_64, aarch64, x86] }
                 sha256: { type: string }
                 file: { type: string, format: binary }
       responses:
@@ -255,6 +257,8 @@ paths:
       parameters:
         - { in: query, name: flavor, schema: { type: string, enum: [normal, cashdesk], default: normal } }
         - { in: query, name: platform, schema: { type: string, enum: [windows, linux, macos, android], default: windows } }
+        - { in: query, name: artifact_type, schema: { type: string, enum: [exe, msi], default: exe } }
+        - { in: query, name: architecture, schema: { type: string, enum: [x86_64, aarch64, x86] } }
       responses:
         '200':
           description: Published build availability
@@ -276,6 +280,8 @@ paths:
       parameters:
         - { in: query, name: flavor, schema: { type: string, enum: [normal, cashdesk], default: normal } }
         - { in: query, name: platform, schema: { type: string, enum: [windows, linux, macos, android], default: windows } }
+        - { in: query, name: artifact_type, schema: { type: string, enum: [exe, msi], default: exe } }
+        - { in: query, name: architecture, schema: { type: string, enum: [x86_64, aarch64, x86] } }
       responses:
         '200': { description: Binary file, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
         '400': { $ref: '#/components/responses/Error' }
@@ -286,9 +292,20 @@ paths:
       parameters:
         - { in: query, name: flavor, schema: { type: string, enum: [normal, cashdesk], default: normal } }
         - { in: query, name: platform, schema: { type: string, enum: [windows, linux, macos, android], default: windows } }
+        - { in: query, name: artifact_type, schema: { type: string, enum: [exe, msi], default: exe } }
+        - { in: query, name: architecture, schema: { type: string, enum: [x86_64, aarch64, x86] } }
       responses:
         '200': { description: Download headers }
         '404': { $ref: '#/components/responses/Error' }
+  /api/v1/install/windows.ps1:
+    get:
+      tags: [Updates]
+      summary: Get a one-command Windows MSI installation script
+      parameters:
+        - { in: query, name: flavor, required: true, schema: { type: string, enum: [normal, cashdesk] } }
+      responses:
+        '200': { description: PowerShell script detects architecture, verifies installer SHA-256, and runs MSI installation }
+        '400': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     DeviceToken:
@@ -372,11 +389,13 @@ components:
         updated_at: { type: string, format: date-time }
     Build:
       type: object
-      required: [id, flavor, platform, version, file_name, file_size, sha256, status, uploaded_at, approved_by]
+      required: [id, flavor, platform, artifact_type, architecture, version, file_name, file_size, sha256, status, uploaded_at, approved_by]
       properties:
         id: { type: integer }
         flavor: { type: string, enum: [normal, cashdesk] }
         platform: { type: string, enum: [windows, linux, macos, android] }
+        artifact_type: { type: string }
+        architecture: { type: string }
         version: { type: string }
         file_name: { type: string }
         file_size: { type: integer }

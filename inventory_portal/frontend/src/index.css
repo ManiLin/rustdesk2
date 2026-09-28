@@ -91,7 +91,7 @@ md-circular-progress { --md-circular-progress-active-indicator-color: var(--md-s
 .app-shell { min-height: 100vh; }
 .top-app-bar { position: sticky; top: 0; z-index: 5; min-height: 72px; display: flex; align-items: center; gap: 20px; padding: 0 32px; background: var(--md-sys-color-surface-container-low); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
 .brand-button { border: 0; background: none; color: var(--md-sys-color-on-surface); display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 18px; font-weight: 600; cursor: pointer; }
-.brand-mark { width: 36px; height: 36px; border-radius: 12px; display: inline-grid; place-items: center; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); font-weight: 700; }
+.brand-mark { width: 36px; height: 36px; flex: 0 0 36px; object-fit: contain; border-radius: 10px; }
 .top-app-title { color: var(--md-sys-color-on-surface-variant); font-size: 14px; }
 .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .app-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: calc(100vh - 72px); }
@@ -185,6 +185,9 @@ md-circular-progress { --md-circular-progress-active-indicator-color: var(--md-s
   .toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
   .search-field { max-width: none; }
   .login-card { padding: 28px 22px; }
+}
+@media (max-width: 520px) {
+  .brand-name { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }

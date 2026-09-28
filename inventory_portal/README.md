@@ -1,4 +1,4 @@
-# Портал учёта клиентов RustDesk
+# TnursRemoteDeskWebApi
 
 Отдельный сервис: API на Rust (Axum + SQLite), веб-интерфейс на TypeScript/React (Vite), Docker Compose.
 
@@ -12,6 +12,7 @@ export JWT_SECRET="$(openssl rand -hex 32)"
 # AD -> адресная книга (токен rustdeskweb живёт только на портале)
 export RUSTDESKWEB_API_URL="https://tnremdeskapi.pxy2.tatnefturs.ru"
 export RUSTDESKWEB_API_TOKEN="<admin api-token rustdeskweb>"
+export PUBLIC_BASE_URL="https://tnremdeskapi.pxy2.tatnefturs.ru"
 docker compose up -d --build
 ```
 
@@ -65,11 +66,31 @@ docker compose up -d --build
 - Публичный meta (клиент): `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk`
   → `{ available, version, download_path, sha256 }` только для подтверждённой сборки.
 - Публичное скачивание: `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...`.
+- На Windows `latest` по умолчанию отдаёт portable EXE; `artifact_type=msi` выбирает установщик,
+  `architecture=x86_64|aarch64|x86` — его архитектуру.
 - Файлы хранятся в `UPLOAD_DIR/builds/` (по умолчанию `/data/downloads/builds`).
 - Лимит размера — `MAX_UPLOAD_BYTES` (512 МБ по умолчанию); `client_max_body_size`
   у nginx и `DefaultBodyLimit` у Axum уже настроены.
 
 Клиент сам подставляет свой flavor в meta-запрос (`cashdesk`/`normal`), платформа — `windows`.
+
+### Установка Windows одной командой
+
+В PowerShell на целевом устройстве выполните нужную команду. API определит архитектуру,
+скачает опубликованный MSI, проверит SHA-256 и запустит тихую установку с запросом UAC:
+
+```powershell
+irm "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/install/windows.ps1?flavor=normal" | iex
+```
+
+Для версии `forcash` укажите `flavor=cashdesk`:
+
+```powershell
+irm "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/install/windows.ps1?flavor=cashdesk" | iex
+```
+
+Установка доступна после загрузки и подтверждения администратором MSI нужного flavor и архитектуры.
+CI загружает отдельно MSI-установщик и EXE для автообновления.
 
 ## GitHub Actions
 
@@ -159,4 +180,5 @@ Material Web сейчас находится в режиме поддержки;
 - `POST /api/v1/admin/builds/{id}/reject` — отклонить сборку со статусом `pending` (JWT).
 - `POST /api/v1/ci/builds` — загрузка из CI (Bearer `CI_UPLOAD_TOKEN` или `INVENTORY_DEVICE_TOKEN`) → `pending`.
 - `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk` — публичный JSON для клиентского автообновления.
-- `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...` — публичное скачивание подтверждённой сборки (поддерживает `HEAD`).
+- `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...&artifact_type=exe|msi&architecture=...` — публичное скачивание подтверждённой сборки (по умолчанию EXE, поддерживает `HEAD`).
+- `GET /api/v1/install/windows.ps1?flavor=normal|cashdesk` — PowerShell-скрипт установки опубликованного MSI; перед запуском сверяется SHA-256.

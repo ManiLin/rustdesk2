@@ -418,8 +418,11 @@ jobs:
           PORTAL_FLAVOR: ${{ inputs.desktop-ui-flavor == 'cashdesk' && 'cashdesk' || 'normal' }}
         run: |
           exe=$(ls ./SignOutput/${{ env.FILE_NAME_PREFIX }}*-${{ matrix.job.arch }}.exe | head -n1)
+          msi=$(ls ./SignOutput/${{ env.FILE_NAME_PREFIX }}*-${{ matrix.job.arch }}.msi | head -n1)
           bash .github/scripts/upload-build-to-portal.sh \
-            "$PORTAL_URL" "$PORTAL_TOKEN" "$exe" "${{ env.VERSION }}" "$PORTAL_FLAVOR" "windows"
+            "$PORTAL_URL" "$PORTAL_TOKEN" "$exe" "${{ env.VERSION }}" "$PORTAL_FLAVOR" "windows" "${{ matrix.job.arch }}"
+          bash .github/scripts/upload-build-to-portal.sh \
+            "$PORTAL_URL" "$PORTAL_TOKEN" "$msi" "${{ env.VERSION }}" "$PORTAL_FLAVOR" "windows" "${{ matrix.job.arch }}"
 
   # The fallback for the flutter version, we use Sciter for 32bit Windows.
   build-for-windows-sciter:

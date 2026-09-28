@@ -14,7 +14,7 @@ use axum::{
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::env;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -27,6 +27,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const RUSTDESK_WINDOWS_DOWNLOAD_PATH: &str = "/api/v1/downloads/rustdesk/windows/latest";
 const RUSTDESK_WINDOWS_STORED_FILENAME: &str = "rustdesk-windows-latest.exe";
+const DEFAULT_PUBLIC_BASE_URL: &str = "https://tnremdeskapi.pxy2.tatnefturs.ru";
 const DEFAULT_MAX_UPLOAD_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone)]
@@ -40,6 +41,7 @@ struct AppState {
     ci_upload_token: String,
     rustdeskweb_api_url: String,
     rustdeskweb_api_token: String,
+    public_base_url: String,
     ad_domain: String,
     preset_address_book_name: String,
     collection_cache: Arc<tokio::sync::Mutex<Option<CollectionRef>>>,
@@ -201,6 +203,8 @@ struct BuildRow {
     id: i64,
     flavor: String,
     platform: String,
+    artifact_type: String,
+    architecture: String,
     version: String,
     file_name: String,
     file_path: String,
@@ -217,6 +221,8 @@ struct BuildDto {
     id: i64,
     flavor: String,
     platform: String,
+    artifact_type: String,
+    architecture: String,
     version: String,
     file_name: String,
     file_size: i64,
@@ -234,6 +240,8 @@ impl From<BuildRow> for BuildDto {
             id: r.id,
             flavor: r.flavor,
             platform: r.platform,
+            artifact_type: r.artifact_type,
+            architecture: r.architecture,
             version: r.version,
             file_name: r.file_name,
             file_size: r.file_size,
@@ -262,6 +270,10 @@ struct BuildQuery {
     flavor: String,
     #[serde(default)]
     platform: String,
+    #[serde(default)]
+    artifact_type: String,
+    #[serde(default)]
+    architecture: String,
 }
 
 /// Сервер из общего реестра (`servers`): источник выпадающего списка в клиенте.
@@ -382,7 +394,7 @@ fn format_ts(ts: i64) -> String {
         .unwrap_or_default()
 }
 
-const BUILDS_COLUMNS: &str = "id, flavor, platform, version, file_name, file_path, file_size, sha256, status, uploaded_at, approved_at, approved_by";
+const BUILDS_COLUMNS: &str = "id, flavor, platform, artifact_type, architecture, version, file_name, file_path, file_size, sha256, status, uploaded_at, approved_at, approved_by";
 
 fn norm_flavor(s: &str) -> Option<&'static str> {
     match s.trim().to_ascii_lowercase().as_str() {
@@ -402,8 +414,34 @@ fn norm_platform(s: &str) -> Option<&'static str> {
     }
 }
 
-fn build_download_path(flavor: &str) -> String {
-    format!("{}?flavor={}", RUSTDESK_WINDOWS_DOWNLOAD_PATH, flavor)
+fn norm_architecture(s: &str) -> Option<&'static str> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "" => Some(""),
+        "x86_64" | "x64" | "amd64" => Some("x86_64"),
+        "aarch64" | "arm64" => Some("aarch64"),
+        "x86" | "i686" | "i386" => Some("x86"),
+        _ => None,
+    }
+}
+
+fn norm_artifact_type(s: &str, platform: &str) -> Option<&'static str> {
+    match (platform, s.trim().to_ascii_lowercase().as_str()) {
+        ("windows", "" | "exe" | "portable") => Some("exe"),
+        ("windows", "msi" | "installer") => Some("msi"),
+        (_, "") => Some(""),
+        _ => None,
+    }
+}
+
+fn build_download_path(flavor: &str, artifact_type: &str, architecture: &str) -> String {
+    let mut query = vec![format!("flavor={flavor}")];
+    if !artifact_type.is_empty() && artifact_type != "exe" {
+        query.push(format!("artifact_type={artifact_type}"));
+    }
+    if !architecture.is_empty() {
+        query.push(format!("architecture={architecture}"));
+    }
+    format!("{}?{}", RUSTDESK_WINDOWS_DOWNLOAD_PATH, query.join("&"))
 }
 
 fn extension_allowed(platform: &str, filename: &str) -> bool {
@@ -413,11 +451,24 @@ fn extension_allowed(platform: &str, filename: &str) -> bool {
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     match platform {
-        "windows" => ext == "exe",
+        "windows" => matches!(ext.as_str(), "exe" | "msi"),
         "android" => ext == "apk",
         "macos" => matches!(ext.as_str(), "dmg" | "pkg"),
         "linux" => matches!(ext.as_str(), "deb" | "rpm" | "zst" | "appimage" | "gz"),
         _ => true,
+    }
+}
+
+fn architecture_from_filename(filename: &str) -> &'static str {
+    let filename = filename.to_ascii_lowercase();
+    if filename.contains("aarch64") || filename.contains("arm64") {
+        "aarch64"
+    } else if filename.contains("x86_64") || filename.contains("x64") {
+        "x86_64"
+    } else if filename.contains("i686") || filename.contains("x86") {
+        "x86"
+    } else {
+        ""
     }
 }
 
@@ -459,12 +510,24 @@ async fn sha256_file(path: &Path) -> anyhow::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-async fn get_published_build(pool: &SqlitePool, flavor: &str, platform: &str) -> Option<BuildRow> {
+async fn get_published_build(
+    pool: &SqlitePool,
+    flavor: &str,
+    platform: &str,
+    artifact_type: &str,
+    architecture: &str,
+) -> Option<BuildRow> {
     sqlx::query_as::<_, BuildRow>(&format!(
-        "SELECT {BUILDS_COLUMNS} FROM builds WHERE status = 'published' AND flavor = ? AND platform = ? ORDER BY approved_at DESC, id DESC LIMIT 1"
+        "SELECT {BUILDS_COLUMNS} FROM builds WHERE status = 'published' AND flavor = ? AND platform = ? AND (? = '' OR artifact_type = ?) AND (? = '' OR architecture = ? OR architecture = '') ORDER BY CASE WHEN architecture = ? AND ? != '' THEN 0 ELSE 1 END, approved_at DESC, id DESC LIMIT 1"
     ))
     .bind(flavor)
     .bind(platform)
+    .bind(artifact_type)
+    .bind(artifact_type)
+    .bind(architecture)
+    .bind(architecture)
+    .bind(architecture)
+    .bind(architecture)
     .fetch_optional(pool)
     .await
     .ok()
@@ -1248,6 +1311,7 @@ async fn handle_build_upload(
     let mut form_version = String::new();
     let mut form_flavor = String::new();
     let mut form_platform = String::new();
+    let mut form_architecture = String::new();
     let mut form_sha = String::new();
     let mut uploaded_filename = None::<String>;
     let mut total_size = 0_u64;
@@ -1268,6 +1332,7 @@ async fn handle_build_upload(
             Some("version") => form_version = field.text().await.unwrap_or_default(),
             Some("flavor") => form_flavor = field.text().await.unwrap_or_default(),
             Some("platform") => form_platform = field.text().await.unwrap_or_default(),
+            Some("architecture") => form_architecture = field.text().await.unwrap_or_default(),
             Some("sha256") => form_sha = field.text().await.unwrap_or_default(),
             Some("file") => {
                 let filename = field.file_name().unwrap_or("build.bin").to_string();
@@ -1342,6 +1407,17 @@ async fn handle_build_upload(
         )
             .into_response();
     }
+    let artifact_type = Path::new(original)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let Some(mut architecture) = norm_architecture(&form_architecture) else {
+        return (StatusCode::BAD_REQUEST, "unsupported architecture").into_response();
+    };
+    if architecture.is_empty() {
+        architecture = architecture_from_filename(original);
+    }
 
     let sha = match sha256_file(&temp_path).await {
         Ok(s) => s,
@@ -1375,11 +1451,13 @@ async fn handle_build_upload(
     guard.disarm();
 
     let r = sqlx::query(
-        "INSERT INTO builds (flavor, platform, version, file_name, file_path, file_size, sha256, status, uploaded_at, approved_by) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, '')",
+        "INSERT INTO builds (flavor, platform, artifact_type, architecture, version, file_name, file_path, file_size, sha256, status, uploaded_at, approved_by) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, '')",
     )
     .bind(flavor)
     .bind(platform)
+    .bind(artifact_type)
+    .bind(architecture)
     .bind(&version)
     .bind(original)
     .bind(final_path.to_string_lossy().to_string())
@@ -1458,10 +1536,12 @@ async fn admin_approve_build_handler(
         }
     };
     if let Err(e) = sqlx::query(
-        "UPDATE builds SET status = 'archived' WHERE flavor = ? AND platform = ? AND status = 'published' AND id != ?",
+        "UPDATE builds SET status = 'archived' WHERE flavor = ? AND platform = ? AND artifact_type = ? AND architecture = ? AND status = 'published' AND id != ?",
     )
     .bind(&build.flavor)
     .bind(&build.platform)
+    .bind(&build.artifact_type)
+    .bind(&build.architecture)
     .bind(id)
     .execute(&mut *tx)
     .await
@@ -1541,8 +1621,14 @@ async fn public_software_update_meta_handler(
     let Some(platform) = norm_platform(&q.platform) else {
         return (StatusCode::BAD_REQUEST, "unsupported platform").into_response();
     };
-    let download_path = build_download_path(flavor);
-    match get_published_build(&state.pool, flavor, platform).await {
+    let Some(artifact_type) = norm_artifact_type(&q.artifact_type, platform) else {
+        return (StatusCode::BAD_REQUEST, "unsupported artifact type").into_response();
+    };
+    let Some(architecture) = norm_architecture(&q.architecture) else {
+        return (StatusCode::BAD_REQUEST, "unsupported architecture").into_response();
+    };
+    let download_path = build_download_path(flavor, artifact_type, architecture);
+    match get_published_build(&state.pool, flavor, platform, artifact_type, architecture).await {
         Some(b) if tokio::fs::try_exists(&b.file_path).await.unwrap_or(false) => {
             Json(BuildMetaDto {
                 available: true,
@@ -1572,7 +1658,15 @@ async fn public_download_rustdesk_head_handler(
     let Some(platform) = norm_platform(&q.platform) else {
         return (StatusCode::BAD_REQUEST, "unsupported platform").into_response();
     };
-    let Some(build) = get_published_build(&state.pool, flavor, platform).await else {
+    let Some(artifact_type) = norm_artifact_type(&q.artifact_type, platform) else {
+        return (StatusCode::BAD_REQUEST, "unsupported artifact type").into_response();
+    };
+    let Some(architecture) = norm_architecture(&q.architecture) else {
+        return (StatusCode::BAD_REQUEST, "unsupported architecture").into_response();
+    };
+    let Some(build) =
+        get_published_build(&state.pool, flavor, platform, artifact_type, architecture).await
+    else {
         return (StatusCode::NOT_FOUND, "file not found").into_response();
     };
     let path = PathBuf::from(&build.file_path);
@@ -1606,7 +1700,15 @@ async fn public_download_rustdesk_handler(
     let Some(platform) = norm_platform(&q.platform) else {
         return (StatusCode::BAD_REQUEST, "unsupported platform").into_response();
     };
-    let Some(build) = get_published_build(&state.pool, flavor, platform).await else {
+    let Some(artifact_type) = norm_artifact_type(&q.artifact_type, platform) else {
+        return (StatusCode::BAD_REQUEST, "unsupported artifact type").into_response();
+    };
+    let Some(architecture) = norm_architecture(&q.architecture) else {
+        return (StatusCode::BAD_REQUEST, "unsupported architecture").into_response();
+    };
+    let Some(build) =
+        get_published_build(&state.pool, flavor, platform, artifact_type, architecture).await
+    else {
         return (StatusCode::NOT_FOUND, "file not found").into_response();
     };
     let path = PathBuf::from(&build.file_path);
@@ -1638,6 +1740,106 @@ async fn public_download_rustdesk_handler(
         .unwrap_or_else(|_| {
             (StatusCode::INTERNAL_SERVER_ERROR, "download response error").into_response()
         })
+}
+
+fn render_windows_install_script(public_base_url: &str, flavor: &str) -> String {
+    format!(
+        r#"$ErrorActionPreference = 'Stop'
+$apiBase = '{public_base_url}'
+$flavor = '{flavor}'
+$architecture = if ($env:PROCESSOR_ARCHITEW6432 -eq 'ARM64' -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {{ 'aarch64' }} elseif ($env:PROCESSOR_ARCHITEW6432 -match 'AMD64|x86_64' -or $env:PROCESSOR_ARCHITECTURE -match 'AMD64|x86_64') {{ 'x86_64' }} else {{ 'x86' }}
+$metaUri = "$apiBase/api/v1/downloads/rustdesk/windows/meta?flavor=$flavor&platform=windows&artifact_type=msi&architecture=$architecture"
+$meta = Invoke-RestMethod -Uri $metaUri -UseBasicParsing
+if (-not $meta.available -or [string]::IsNullOrWhiteSpace([string]$meta.sha256)) {{ throw "No approved $flavor installer is available for $architecture." }}
+$downloadUri = [System.Uri]::new([System.Uri]$apiBase, [string]$meta.download_path).AbsoluteUri
+$msiPath = Join-Path $env:TEMP ("TnursRemoteDesk-{{0}}-{{1}}-{{2}}.msi" -f $flavor, $architecture, [guid]::NewGuid().ToString('N'))
+try {{
+  Invoke-WebRequest -Uri $downloadUri -OutFile $msiPath -UseBasicParsing
+  $actualSha256 = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash
+  if ($actualSha256 -ine [string]$meta.sha256) {{ throw 'Installer checksum does not match the portal metadata.' }}
+  $arguments = '/i "{{0}}" /qn /norestart' -f $msiPath
+  $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -ArgumentList $arguments -Wait -PassThru -Verb RunAs
+  if ($process.ExitCode -notin @(0, 3010)) {{ throw "MSI installation failed with exit code $($process.ExitCode)." }}
+  Write-Output "TnursRemoteDesk ($flavor) installed. Restart required: $($process.ExitCode -eq 3010)."
+}} finally {{
+  Remove-Item -LiteralPath $msiPath -Force -ErrorAction SilentlyContinue
+}}
+"#
+    )
+}
+
+async fn public_windows_install_script_handler(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<BuildQuery>,
+) -> Response {
+    let Some(flavor) = norm_flavor(&q.flavor) else {
+        return (StatusCode::BAD_REQUEST, "flavor must be normal or cashdesk").into_response();
+    };
+    let script = render_windows_install_script(&state.public_base_url, flavor);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(script))
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "script response error").into_response()
+        })
+}
+
+fn normalize_public_base_url(value: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(value.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return None;
+    }
+    Some(parsed.as_str().trim_end_matches('/').to_owned())
+}
+
+async fn migrate_build_artifact_columns(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows = sqlx::query("PRAGMA table_info(builds)")
+        .fetch_all(pool)
+        .await?;
+    let columns = rows
+        .iter()
+        .map(|row| row.try_get::<String, _>("name"))
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "artifact_type") {
+        sqlx::query("ALTER TABLE builds ADD COLUMN artifact_type TEXT NOT NULL DEFAULT 'exe'")
+            .execute(pool)
+            .await?;
+    }
+    if !columns.iter().any(|column| column == "architecture") {
+        sqlx::query("ALTER TABLE builds ADD COLUMN architecture TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await?;
+    }
+    sqlx::query(
+        "UPDATE builds SET artifact_type = 'msi' WHERE lower(file_name) LIKE '%.msi' AND artifact_type = 'exe'",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "UPDATE builds SET architecture = 'aarch64' WHERE architecture = '' AND (lower(file_name) LIKE '%aarch64%' OR lower(file_name) LIKE '%arm64%')",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "UPDATE builds SET architecture = 'x86_64' WHERE architecture = '' AND (lower(file_name) LIKE '%x86_64%' OR lower(file_name) LIKE '%x64%')",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "UPDATE builds SET architecture = 'x86' WHERE architecture = '' AND (lower(file_name) LIKE '%i686%' OR lower(file_name) LIKE '%x86%') AND lower(file_name) NOT LIKE '%x86_64%'",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 fn build_app(state: Arc<AppState>, upload_body_limit: usize) -> Router {
@@ -1689,6 +1891,10 @@ fn build_app(state: Arc<AppState>, upload_body_limit: usize) -> Router {
             "/api/v1/downloads/rustdesk/windows/latest",
             get(public_download_rustdesk_handler).head(public_download_rustdesk_head_handler),
         )
+        .route(
+            "/api/v1/install/windows.ps1",
+            get(public_windows_install_script_handler),
+        )
         .layer(from_fn(json_error_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -1700,7 +1906,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             env::var("RUST_LOG")
-                .unwrap_or_else(|_| "inventory_portal_api=info,tower_http=info".into()),
+                .unwrap_or_else(|_| "tnurs_remotedesk_web_api=info,tower_http=info".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -1733,6 +1939,13 @@ async fn main() -> anyhow::Result<()> {
     let rustdeskweb_api_url = env::var("RUSTDESKWEB_API_URL")
         .unwrap_or_else(|_| "https://tnremdeskapi.pxy2.tatnefturs.ru".to_string());
     let rustdeskweb_api_token = env::var("RUSTDESKWEB_API_TOKEN").unwrap_or_default();
+    let public_base_url = match env::var("PUBLIC_BASE_URL") {
+        Ok(value) => normalize_public_base_url(&value).unwrap_or_else(|| {
+            tracing::warn!("PUBLIC_BASE_URL is invalid; using default portal URL");
+            DEFAULT_PUBLIC_BASE_URL.to_string()
+        }),
+        Err(_) => DEFAULT_PUBLIC_BASE_URL.to_string(),
+    };
     let ad_domain = env::var("AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let preset_address_book_name = env::var("PRESET_ADDRESS_BOOK_NAME")
         .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
@@ -1800,6 +2013,8 @@ async fn main() -> anyhow::Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             flavor TEXT NOT NULL DEFAULT 'normal',
             platform TEXT NOT NULL DEFAULT 'windows',
+            artifact_type TEXT NOT NULL DEFAULT 'exe',
+            architecture TEXT NOT NULL DEFAULT '',
             version TEXT NOT NULL,
             file_name TEXT NOT NULL DEFAULT '',
             file_path TEXT NOT NULL DEFAULT '',
@@ -1814,6 +2029,8 @@ async fn main() -> anyhow::Result<()> {
     )
     .execute(&pool)
     .await?;
+
+    migrate_build_artifact_columns(&pool).await?;
 
     sqlx::query(
         r#"
@@ -1860,6 +2077,7 @@ async fn main() -> anyhow::Result<()> {
         ci_upload_token,
         rustdeskweb_api_url,
         rustdeskweb_api_token,
+        public_base_url,
         ad_domain,
         preset_address_book_name,
         collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
@@ -1882,8 +2100,10 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        admin_auth_error, build_app, issue_jwt, norm_flavor, norm_platform, normalize_server_host,
-        AppState, Body, Request, SqlitePoolOptions, StatusCode,
+        admin_auth_error, build_app, get_published_build, issue_jwt,
+        migrate_build_artifact_columns, norm_architecture, norm_artifact_type, norm_flavor,
+        norm_platform, normalize_public_base_url, normalize_server_host, AppState, Body, Request,
+        SqlitePoolOptions, StatusCode, DEFAULT_PUBLIC_BASE_URL,
     };
     use axum::body::to_bytes;
     use serde_json::{json, Value};
@@ -1904,7 +2124,7 @@ mod tests {
         .await
         .expect("servers table");
         sqlx::query(
-            "CREATE TABLE builds (id INTEGER PRIMARY KEY AUTOINCREMENT, flavor TEXT NOT NULL DEFAULT 'normal', platform TEXT NOT NULL DEFAULT 'windows', version TEXT NOT NULL, file_name TEXT NOT NULL DEFAULT '', file_path TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', uploaded_at INTEGER NOT NULL, approved_at INTEGER, approved_by TEXT NOT NULL DEFAULT '')",
+            "CREATE TABLE builds (id INTEGER PRIMARY KEY AUTOINCREMENT, flavor TEXT NOT NULL DEFAULT 'normal', platform TEXT NOT NULL DEFAULT 'windows', artifact_type TEXT NOT NULL DEFAULT 'exe', architecture TEXT NOT NULL DEFAULT '', version TEXT NOT NULL, file_name TEXT NOT NULL DEFAULT '', file_path TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', uploaded_at INTEGER NOT NULL, approved_at INTEGER, approved_by TEXT NOT NULL DEFAULT '')",
         )
         .execute(&pool)
         .await
@@ -1931,6 +2151,7 @@ mod tests {
             ci_upload_token: String::new(),
             rustdeskweb_api_url: String::new(),
             rustdeskweb_api_token: String::new(),
+            public_base_url: DEFAULT_PUBLIC_BASE_URL.into(),
             ad_domain: String::new(),
             preset_address_book_name: String::new(),
             collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
@@ -1969,6 +2190,96 @@ mod tests {
         assert_eq!(norm_platform("Darwin"), Some("macos"));
         assert_eq!(norm_platform(""), Some("windows"));
         assert_eq!(norm_platform("freebsd"), None);
+        assert_eq!(norm_artifact_type("installer", "windows"), Some("msi"));
+        assert_eq!(norm_artifact_type("", "windows"), Some("exe"));
+        assert_eq!(norm_artifact_type("dmg", "windows"), None);
+        assert_eq!(norm_architecture("ARM64"), Some("aarch64"));
+        assert_eq!(norm_architecture("amd64"), Some("x86_64"));
+        assert_eq!(norm_architecture("mips"), None);
+        assert_eq!(
+            normalize_public_base_url("https://example.com/"),
+            Some("https://example.com".into())
+        );
+        assert_eq!(normalize_public_base_url("javascript:alert(1)"), None);
+    }
+
+    #[tokio::test]
+    async fn existing_build_rows_migrate_artifact_and_architecture_from_filename() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory database");
+        sqlx::query("CREATE TABLE builds (id INTEGER PRIMARY KEY, flavor TEXT, platform TEXT, version TEXT, file_name TEXT, file_path TEXT, file_size INTEGER, sha256 TEXT, status TEXT, uploaded_at INTEGER, approved_at INTEGER, approved_by TEXT)")
+            .execute(&pool)
+            .await
+            .expect("legacy builds table");
+        sqlx::query("INSERT INTO builds VALUES (1, 'cashdesk', 'windows', '1.0', 'TnursRemoteDesk_forcash_1.0-aarch64.msi', '/tmp/build.msi', 1, 'hash', 'published', 1, 1, 'admin')")
+            .execute(&pool)
+            .await
+            .expect("legacy build");
+
+        migrate_build_artifact_columns(&pool)
+            .await
+            .expect("migrate build columns");
+        let build = get_published_build(&pool, "cashdesk", "windows", "msi", "aarch64")
+            .await
+            .expect("migrated MSI");
+        assert_eq!(build.artifact_type, "msi");
+        assert_eq!(build.architecture, "aarch64");
+    }
+
+    #[tokio::test]
+    async fn published_build_selection_separates_installers_and_architectures() {
+        let state = test_state().await;
+        for (id, artifact_type, architecture, file_name) in [
+            (1, "exe", "x86_64", "normal-x64.exe"),
+            (2, "msi", "x86_64", "normal-x64.msi"),
+            (3, "msi", "aarch64", "normal-arm64.msi"),
+        ] {
+            sqlx::query("INSERT INTO builds (id, flavor, platform, artifact_type, architecture, version, file_name, status, uploaded_at, approved_at) VALUES (?, 'normal', 'windows', ?, ?, '1.0', ?, 'published', 1, ?)")
+                .bind(id)
+                .bind(artifact_type)
+                .bind(architecture)
+                .bind(file_name)
+                .bind(id)
+                .execute(&state.pool)
+                .await
+                .expect("insert artifact");
+        }
+        let installer = get_published_build(&state.pool, "normal", "windows", "msi", "aarch64")
+            .await
+            .expect("ARM installer");
+        assert_eq!(installer.file_name, "normal-arm64.msi");
+        let updater = get_published_build(&state.pool, "normal", "windows", "exe", "x86_64")
+            .await
+            .expect("x64 updater");
+        assert_eq!(updater.file_name, "normal-x64.exe");
+    }
+
+    #[tokio::test]
+    async fn install_script_endpoint_selects_requested_flavor_and_checks_hash() {
+        let state = test_state().await;
+        let app = build_app(state, 1024);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/install/windows.ps1?flavor=cashdesk")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("script body");
+        let script = String::from_utf8(body.to_vec()).expect("UTF-8 script");
+        assert!(script.contains("$flavor = 'cashdesk'"));
+        assert!(script.contains("artifact_type=msi"));
+        assert!(script.contains("Get-FileHash"));
+        assert!(script.contains("msiexec.exe"));
+        assert!(script.contains(DEFAULT_PUBLIC_BASE_URL));
     }
 
     #[tokio::test]

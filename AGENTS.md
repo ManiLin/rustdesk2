@@ -3,10 +3,13 @@
 ## Versioning
 
 For this project, use `1.4.9-N` as the application version, starting at `1.4.9-1`.
-Before each commit, increment `N` by one and synchronize the version in `Cargo.toml`,
-`Cargo.lock`, `flutter/pubspec.yaml`, and the build/package metadata. `src/version.rs` is
-generated from `Cargo.toml`; do not track it. The Flutter build number after `+` should
-also increase by one for each version bump.
+Do not increment the version for every commit. At release preparation, review the
+accumulated changes and increment `N` when preparing a new user-facing app build, such as
+for a shipped feature, behavior change, or bug fix. Documentation-only and CI-only
+changes do not need a version bump unless they change the generated app build. When
+bumping, synchronize `Cargo.toml`, `Cargo.lock`, `flutter/pubspec.yaml`, and the
+build/package metadata. `src/version.rs` is generated from `Cargo.toml`; do not track it.
+Increment the Flutter build number after `+` once for each application version bump.
 
 ## Project Layout
 

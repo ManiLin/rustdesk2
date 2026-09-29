@@ -1051,6 +1051,7 @@ Future<void> editTagServerDialog(String tag) async {
       text: entry is Map ? (entry['key'] ?? '').toString() : '');
   var manual =
       servers.isEmpty || TagServerEntry.byHost(servers, currentServer) == null;
+  var serverListExpanded = false;
   gFFI.dialogManager.show((setState, close, context) {
     submit() {
       final server = serverController.text.trim();
@@ -1076,27 +1077,68 @@ Future<void> editTagServerDialog(String tag) async {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!manual)
-            DropdownButtonFormField<String>(
-              value: TagServerEntry.byHost(servers, serverController.text.trim())
-                  ?.host,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: translate('Shared server list'),
-              ),
-              items: [
-                for (final s in servers)
-                  DropdownMenuItem(
-                    value: s.host,
-                    child: Text(s.label, overflow: TextOverflow.ellipsis),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () =>
+                      setState(() => serverListExpanded = !serverListExpanded),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: translate('Shared server list'),
+                      suffixIcon: Icon(serverListExpanded
+                          ? Icons.arrow_drop_up
+                          : Icons.arrow_drop_down),
+                    ),
+                    child: Text(
+                      TagServerEntry.byHost(
+                              servers, serverController.text.trim())
+                          ?.label ??
+                          serverController.text.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                ),
+                if (serverListExpanded) ...[
+                  const SizedBox(height: 4),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 180),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                            color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: servers.length,
+                        itemBuilder: (context, index) {
+                          final server = servers[index];
+                          final selected = server.host ==
+                              serverController.text.trim();
+                          return ListTile(
+                            dense: true,
+                            selected: selected,
+                            title: Text(server.label,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis),
+                            trailing: selected
+                                ? const Icon(Icons.check, size: 18)
+                                : null,
+                            onTap: () {
+                              serverController.text = server.host;
+                              keyController.text = server.key;
+                              setState(() => serverListExpanded = false);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ],
-              onChanged: (value) {
-                final s = TagServerEntry.byHost(servers, value);
-                if (s == null) return;
-                serverController.text = s.host;
-                keyController.text = s.key;
-                setState(() {});
-              },
             ),
           if (manual) ...[
             TextField(

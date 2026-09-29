@@ -212,6 +212,18 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /api/v1/admin/builds/{id}:
+    delete:
+      tags: [Builds]
+      summary: Delete a build record and its uploaded file
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Build deleted }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /api/v1/admin/builds/{id}/reject:
     post:
       tags: [Builds]

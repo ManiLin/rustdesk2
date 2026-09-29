@@ -63,6 +63,7 @@ docker compose up -d --build
 - Подтверждение: `POST /api/v1/admin/builds/{id}/approve` — публикует сборку,
   предыдущая опубликованная для того же flavor/platform уходит в `archived`.
 - Отклонение: `POST /api/v1/admin/builds/{id}/reject`.
+- Удаление: `DELETE /api/v1/admin/builds/{id}` — удаляет сборку и её файл с портала (JWT).
 - Публичный meta (клиент): `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk`
   → `{ available, version, download_path, sha256 }` только для подтверждённой сборки.
 - Публичное скачивание: `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...`.
@@ -146,7 +147,7 @@ Material Web сейчас находится в режиме поддержки;
 Нужно в клиенте:
 
 - `enable-check-update` = `true`
-- `allow-auto-update` = `true` — для фоновой проверки и установки; иначе доступна только ручная проверка из UI
+- `allow-auto-update` по умолчанию включено; значение `N` отключает фоновую установку, оставляя ручную проверку из UI
 - Корректный `inventory-report-url` (или отдельно `inventory-update-meta-url` на HTTPS в проде)
 
 У **кастомного имени приложения** официальные обновления по-прежнему отключены, но **портал учёта** для exe остаётся доступен, если задан URL метаданных.
@@ -178,6 +179,7 @@ Material Web сейчас находится в режиме поддержки;
 - `POST /api/v1/admin/builds` — загрузка сборки (JWT, `multipart/form-data`: `version`, `flavor`, `platform`, `file`) → `pending`.
 - `POST /api/v1/admin/builds/{id}/approve` — подтвердить сборку со статусом `pending`; предыдущая публикация для той же платформы и flavor архивируется (JWT).
 - `POST /api/v1/admin/builds/{id}/reject` — отклонить сборку со статусом `pending` (JWT).
+- `DELETE /api/v1/admin/builds/{id}` — удалить запись сборки и её файл (JWT).
 - `POST /api/v1/ci/builds` — загрузка из CI (Bearer `CI_UPLOAD_TOKEN` или `INVENTORY_DEVICE_TOKEN`) → `pending`.
 - `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk` — публичный JSON для клиентского автообновления.
 - `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...&artifact_type=exe|msi&architecture=...` — публичное скачивание подтверждённой сборки (по умолчанию EXE, поддерживает `HEAD`).

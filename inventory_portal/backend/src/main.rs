@@ -1611,6 +1611,48 @@ async fn admin_reject_build_handler(
     }
 }
 
+async fn admin_delete_build_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    AxumPath(id): AxumPath<i64>,
+) -> impl IntoResponse {
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if !verify_admin_jwt(&state, auth) {
+        return admin_auth_error(&state, auth);
+    }
+    let Some(build) = get_build(&state.pool, id).await else {
+        return (StatusCode::NOT_FOUND, "build not found").into_response();
+    };
+    let result = sqlx::query("DELETE FROM builds WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+    match result {
+        Ok(result) if result.rows_affected() == 1 => {
+            let builds_dir = state.uploads_dir.join("builds");
+            let file_path = Path::new(&build.file_path);
+            if file_path.strip_prefix(&builds_dir).is_ok() {
+                if let Err(e) = tokio::fs::remove_file(file_path).await {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        tracing::warn!(id, error = %e, "failed to remove build file");
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    id,
+                    "build file is outside the uploads directory; leaving it untouched"
+                );
+            }
+            Json(serde_json::json!({"ok": true, "deleted": id})).into_response()
+        }
+        Ok(_) => (StatusCode::NOT_FOUND, "build not found").into_response(),
+        Err(e) => {
+            tracing::error!("delete build: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
 async fn public_software_update_meta_handler(
     State(state): State<Arc<AppState>>,
     Query(q): Query<BuildQuery>,
@@ -1878,6 +1920,10 @@ fn build_app(state: Arc<AppState>, upload_body_limit: usize) -> Router {
         .route(
             "/api/v1/admin/builds/{id}/reject",
             post(admin_reject_build_handler),
+        )
+        .route(
+            "/api/v1/admin/builds/{id}",
+            axum::routing::delete(admin_delete_build_handler),
         )
         .route(
             "/api/v1/ci/builds",
@@ -2424,6 +2470,46 @@ mod tests {
             statuses,
             vec![(1, "archived".into()), (2, "published".into())]
         );
+    }
+
+    #[tokio::test]
+    async fn admin_can_delete_builds_and_device_token_cannot() {
+        let state = test_state().await;
+        sqlx::query("INSERT INTO builds (id, version, status, uploaded_at) VALUES (1, '1.4.9', 'published', 1)")
+            .execute(&state.pool)
+            .await
+            .expect("insert build");
+        let app = build_app(state.clone(), 1024);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/admin/builds/1")
+                    .header("authorization", "Bearer device-secret")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let (admin_token, _) = issue_jwt(&state).expect("admin JWT");
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/admin/builds/1")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response_json(response).await["deleted"], 1);
+        assert!(super::get_build(&state.pool, 1).await.is_none());
     }
 
     #[tokio::test]

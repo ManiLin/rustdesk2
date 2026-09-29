@@ -282,12 +282,20 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
                     ));
                     None
                 };
-                let update_launched = match crate::platform::launch_privileged_process(
-                    session_id,
-                    &format!("{} --update", p),
-                ) {
-                    Ok(h) => {
-                        if h.is_null() {
+                let update_launched = match if crate::platform::is_elevated(None).unwrap_or(false) {
+                    // The installed service already runs with the privileges required to
+                    // replace its files. Launching through the interactive user token would
+                    // trigger an unnecessary UAC prompt for every update.
+                    crate::platform::run_background(p, "--update")
+                } else {
+                    crate::platform::launch_privileged_process(
+                        session_id,
+                        &format!("{} --update", p),
+                    )
+                    .map(|handle| !handle.is_null())
+                } {
+                    Ok(launched) => {
+                        if !launched {
                             log::error!("Failed to update to the new version: {}", version);
                             false
                         } else {

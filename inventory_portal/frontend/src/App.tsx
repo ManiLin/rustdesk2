@@ -344,6 +344,31 @@ export default function App() {
     }
   };
 
+  const deleteBuild = (build: Build) => setConfirmation({
+    title: "Удалить сборку?",
+    message: `${build.file_name} (${build.version}) будет удалена с портала и перестанет быть доступна для загрузки клиентами.`,
+    actionLabel: "Удалить",
+    run: async () => {
+      if (!token) return;
+      setBusyId(`build-${build.id}`);
+      setError("");
+      setNotice("");
+      try {
+        const response = await fetch(`/api/v1/admin/builds/${build.id}`, {
+          method: "DELETE", headers: authHeaders(),
+        });
+        if (response.status === 401) return logout();
+        if (!response.ok) throw new Error(await responseError(response, "Не удалось удалить сборку"));
+        setBuilds((current) => current.filter((row) => row.id !== build.id));
+        setNotice("Сборка удалена");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Не удалось удалить сборку");
+      } finally {
+        setBusyId("");
+      }
+    },
+  });
+
   const saveServer = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!token) return;
@@ -531,7 +556,7 @@ export default function App() {
                     {builds.length === 0 ? <div className="empty-state">Сборок пока нет.</div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Сборка</th><th>Канал</th><th>Платформа</th><th>Файл и размер</th><th>Статус</th><th>Загружена</th><th>Действия</th></tr></thead><tbody>
                       {builds.map((build) => <tr key={build.id}>
                         <td><strong>{build.version}</strong><span className="secondary-cell">#{build.id}</span></td><td>{build.flavor}</td><td>{build.platform}</td><td>{build.file_name}<span className="secondary-cell">{build.artifact_type}{build.architecture ? ` · ${build.architecture}` : ""} · {formatBytes(build.file_size)}</span></td><td><StatusPill status={build.status} /></td><td>{build.uploaded_at}</td>
-                        <td>{build.status === "pending" ? <div className="row-actions"><md-filled-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "approve")}>Опубликовать</md-filled-button><md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "reject")}>Отклонить</md-outlined-button></div> : "—"}</td>
+                        <td><div className="row-actions">{build.status === "pending" && <><md-filled-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "approve")}>Опубликовать</md-filled-button><md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "reject")}>Отклонить</md-outlined-button></>}<md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => deleteBuild(build)}>Удалить</md-outlined-button></div></td>
                       </tr>)}
                     </tbody></table></div>}
                   </section>

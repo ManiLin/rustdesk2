@@ -143,6 +143,13 @@ pub(super) fn argb_to_rgba(argb: u32) -> (u8, u8, u8, u8) {
     )
 }
 
+// Whether dark text is more readable than white on top of this color.
+#[inline]
+pub(super) fn is_light_argb(argb: u32) -> bool {
+    let (r, g, b, _) = argb_to_rgba(argb);
+    0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 160.0
+}
+
 pub(super) struct Ripple {
     pub x: RippleFloat,
     pub y: RippleFloat,

@@ -445,6 +445,7 @@ impl WindowState {
                         y + 24.0 * size,
                         &arrow_paint,
                         14.0f32,
+                        super::server::is_light_argb(cursor.argb),
                     );
                 });
             }

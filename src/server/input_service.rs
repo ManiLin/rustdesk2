@@ -22,7 +22,7 @@ use std::sync::mpsc;
 use std::{
     convert::TryFrom,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, Ordering},
     thread,
     time::{self, Duration, Instant},
 };
@@ -491,6 +491,71 @@ pub(crate) fn clear_relative_mouse_active(conn: i32) {
 static EXITING: AtomicBool = AtomicBool::new(false);
 
 const MOUSE_MOVE_PROTECTION_TIMEOUT: Duration = Duration::from_millis(1_000);
+
+// The user at the controlled computer has mouse priority, like in AnyDesk: while they use
+// the physical mouse (and for a moment after), remote mouse input does not move the real
+// cursor. The remote pointer is drawn as an overlay instead, see `handle_mouse_`.
+const LOCAL_MOUSE_PRIORITY_MS: i64 = 1_000;
+static LOCAL_MOUSE_ACTIVE_AT: AtomicI64 = AtomicI64::new(0);
+
+#[inline]
+pub fn mark_local_mouse_active() {
+    LOCAL_MOUSE_ACTIVE_AT.store(get_time(), Ordering::Relaxed);
+}
+
+#[inline]
+fn local_mouse_has_priority() -> bool {
+    let active_at = LOCAL_MOUSE_ACTIVE_AT.load(Ordering::Relaxed);
+    active_at != 0 && get_time() - active_at < LOCAL_MOUSE_PRIORITY_MS
+}
+
+// conn id -> whether the overlay of the remote pointer is currently shown.
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    static ref REMOTE_POINTER_OVERLAYS: std::sync::Mutex<std::collections::HashMap<i32, bool>> = Default::default();
+}
+
+// The overlay is a transparent window, which needs desktop composition. It is always on in
+// Windows 8 and later, but Windows 7 may run without Aero (e.g. the Basic theme).
+#[cfg(windows)]
+fn is_remote_pointer_overlay_supported() -> bool {
+    if crate::platform::windows::is_win_10_or_greater() {
+        return true;
+    }
+    let mut enabled = 0;
+    unsafe { winapi::um::dwmapi::DwmIsCompositionEnabled(&mut enabled) == 0 && enabled != 0 }
+}
+
+#[cfg(windows)]
+fn show_remote_pointer_overlay(conn: i32) {
+    if !is_remote_pointer_overlay_supported() {
+        return;
+    }
+    let Ok(mut overlays) = REMOTE_POINTER_OVERLAYS.lock() else {
+        return;
+    };
+    let shown = overlays.entry(conn).or_insert_with(|| {
+        whiteboard::register_whiteboard(whiteboard::get_key_cursor(conn));
+        false
+    });
+    *shown = true;
+}
+
+#[cfg(windows)]
+fn hide_remote_pointer_overlay(conn: i32) {
+    let Ok(mut overlays) = REMOTE_POINTER_OVERLAYS.lock() else {
+        return;
+    };
+    if let Some(shown) = overlays.get_mut(&conn) {
+        if *shown {
+            *shown = false;
+            whiteboard::update_whiteboard(
+                whiteboard::get_key_cursor(conn),
+                whiteboard::CustomEvent::Clear,
+            );
+        }
+    }
+}
 // Actual diff of (x,y) is (1,1) here. But 5 may be tolerant.
 const MOUSE_ACTIVE_DISTANCE: i32 = 5;
 
@@ -522,6 +587,8 @@ pub fn try_start_record_cursor_pos() -> Option<thread::JoinHandle<()>> {
     }
 
     RECORD_CURSOR_POS_RUNNING.store(true, Ordering::SeqCst);
+    #[cfg(windows)]
+    super::local_mouse_hook::start();
     let handle = thread::spawn(|| {
         let interval = time::Duration::from_millis(33);
         loop {
@@ -554,6 +621,8 @@ pub fn try_stop_record_cursor_pos() {
         return;
     }
     RECORD_CURSOR_POS_RUNNING.store(false, Ordering::SeqCst);
+    #[cfg(windows)]
+    super::local_mouse_hook::stop();
 }
 
 // mac key input must be run in main thread, otherwise crash on >= osx 10.15
@@ -1041,12 +1110,22 @@ pub fn handle_mouse_(
     simulate: bool,
     _show_cursor: bool,
 ) {
-    if simulate {
+    let evt_type = evt.mask & MOUSE_TYPE_MASK;
+    let local_priority = simulate && local_mouse_has_priority();
+    // Button releases always go through, so a remote drag can't leave a button stuck.
+    if simulate && (!local_priority || evt_type == MOUSE_TYPE_UP) {
         handle_mouse_simulation_(evt, conn);
+    }
+    #[cfg(windows)]
+    if local_priority {
+        show_remote_pointer_overlay(conn);
+    } else if simulate {
+        hide_remote_pointer_overlay(conn);
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let evt_type = evt.mask & MOUSE_TYPE_MASK;
+        #[cfg(windows)]
+        let _show_cursor = _show_cursor || local_priority;
         // Relative (delta) mouse events do not include absolute coordinates, so
         // whiteboard/cursor rendering must be disabled during relative mode to prevent
         // incorrect cursor/whiteboard updates. We check both is_relative_mouse_active(conn)

@@ -96,6 +96,8 @@ lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
     /// Версия с портала учёта (для прямой ссылки на exe, без GitHub-разбора URL).
     pub static ref SOFTWARE_UPDATE_PORTAL_VERSION: Arc<Mutex<String>> = Default::default();
+    /// SHA-256 сборки с портала учёта для проверки скачанного exe.
+    pub static ref SOFTWARE_UPDATE_PORTAL_SHA256: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
@@ -981,6 +983,8 @@ struct InventoryPortalUpdateMeta {
     version: Option<String>,
     #[serde(default)]
     download_path: Option<String>,
+    #[serde(default)]
+    sha256: Option<String>,
 }
 
 /// Проверка обновления по `inventory-update-meta-url` или производному от `inventory-report-url` (только Windows / exe с портала).
@@ -1015,6 +1019,7 @@ pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultTy
         architecture
     );
     *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = String::new();
+    *SOFTWARE_UPDATE_PORTAL_SHA256.lock().unwrap() = String::new();
 
     let proxy_conf = Config::get_socks();
     let tls_url = get_url_for_tls(&meta_url, &proxy_conf);
@@ -1040,9 +1045,9 @@ pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultTy
         }
     };
     if !resp.status().is_success() {
-        log::warn!("inventory portal update meta HTTP {}", resp.status());
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
-        return Ok(());
+        // Ошибка, а не «обновлений нет»: автообновление повторит проверку раньше чем через сутки.
+        hbb_common::bail!("inventory portal update meta HTTP {}", resp.status());
     }
     let bytes = resp.bytes().await?;
     let meta: InventoryPortalUpdateMeta = serde_json::from_slice(&bytes)?;
@@ -1077,6 +1082,10 @@ pub async fn do_check_inventory_portal_software_update() -> hbb_common::ResultTy
 
     if get_version_number(&ver) > get_version_number(crate::VERSION) {
         *SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap() = ver.clone();
+        *SOFTWARE_UPDATE_PORTAL_SHA256.lock().unwrap() = meta
+            .sha256
+            .map(|h| h.trim().to_ascii_lowercase())
+            .unwrap_or_default();
         #[cfg(feature = "flutter")]
         {
             let mut m = HashMap::new();

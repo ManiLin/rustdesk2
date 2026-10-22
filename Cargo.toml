@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk"
-version = "1.4.9-5"
+version = "1.4.9-6"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
@@ -104,6 +104,7 @@ qrcode-generator = "4.1"
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = [
     "winuser",
+    "dwmapi",
     "wincred",
     "wincrypt",
     "shellscalingapi",

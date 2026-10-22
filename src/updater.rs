@@ -2,11 +2,15 @@ use crate::{
     common::{
         do_refresh_software_update_offer,
         is_inventory_portal_update_url,
-        SOFTWARE_UPDATE_PORTAL_VERSION,
+        SOFTWARE_UPDATE_PORTAL_SHA256, SOFTWARE_UPDATE_PORTAL_VERSION,
     },
     hbbs_http::create_http_client_with_url,
 };
-use hbb_common::{bail, config, log, ResultType};
+use hbb_common::{
+    bail, config, log,
+    sha2::{Digest, Sha256},
+    ResultType,
+};
 use std::{
     io::Write,
     path::PathBuf,
@@ -89,15 +93,18 @@ fn start_auto_update_check() -> Sender<UpdateMsg> {
 }
 
 fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
-    std::thread::sleep(Duration::from_secs(30));
-    if let Err(e) = check_update(false) {
-        log::error!("Error checking for updates: {}", e);
-    }
-
     const MIN_INTERVAL: Duration = Duration::from_secs(60 * 10);
     const RETRY_INTERVAL: Duration = Duration::from_secs(60 * 30);
+    std::thread::sleep(Duration::from_secs(30));
+    let mut check_interval = match check_update(false) {
+        Ok(false) => DUR_ONE_DAY,
+        Ok(true) => RETRY_INTERVAL,
+        Err(e) => {
+            log::error!("Error checking for updates: {}", e);
+            RETRY_INTERVAL
+        }
+    };
     let mut last_check_time = Instant::now();
-    let mut check_interval = DUR_ONE_DAY;
     loop {
         let recv_res = rx_msg.recv_timeout(check_interval);
         match &recv_res {
@@ -111,36 +118,47 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
                     check_interval = RETRY_INTERVAL;
                     continue;
                 }
-                if let Err(e) = check_update(matches!(recv_res, Ok(UpdateMsg::CheckUpdate))) {
-                    log::error!("Error checking for updates: {}", e);
-                    check_interval = RETRY_INTERVAL;
-                } else {
-                    last_check_time = Instant::now();
-                    check_interval = DUR_ONE_DAY;
-                }
+                last_check_time = Instant::now();
+                check_interval =
+                    match check_update(matches!(recv_res, Ok(UpdateMsg::CheckUpdate))) {
+                        Ok(false) => DUR_ONE_DAY,
+                        // The update is not installed yet (connections, failed launch, ...).
+                        Ok(true) => RETRY_INTERVAL,
+                        Err(e) => {
+                            log::error!("Error checking for updates: {}", e);
+                            RETRY_INTERVAL
+                        }
+                    };
             }
             Ok(UpdateMsg::Exit) => break,
         }
     }
 }
 
-fn check_update(manually: bool) -> ResultType<()> {
+/// Returns `Ok(true)` when a new version is available but not installed yet,
+/// so the caller retries soon instead of waiting a day.
+fn check_update(manually: bool) -> ResultType<bool> {
     #[cfg(target_os = "windows")]
     let update_msi = crate::platform::is_msi_installed()? && !crate::is_custom_client();
     if !(manually || config::Config::get_bool_option(config::keys::OPTION_ALLOW_AUTO_UPDATE)) {
-        return Ok(());
+        return Ok(false);
     }
-    if do_refresh_software_update_offer().is_err() {
-        // ignore
-        return Ok(());
+    if let Err(e) = do_refresh_software_update_offer() {
+        bail!("Failed to refresh the update offer: {}", e);
     }
 
     let update_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
     if update_url.is_empty() {
         log::debug!("No update available.");
+        return Ok(false);
     } else {
         let portal = is_inventory_portal_update_url(&update_url);
         let version_from_portal = SOFTWARE_UPDATE_PORTAL_VERSION.lock().unwrap().clone();
+        let expected_sha256 = if portal {
+            SOFTWARE_UPDATE_PORTAL_SHA256.lock().unwrap().clone()
+        } else {
+            String::new()
+        };
 
         #[cfg(target_os = "windows")]
         let update_msi = if portal {
@@ -192,7 +210,14 @@ fn check_update(manually: bool) -> ResultType<()> {
             }
         };
         let mut is_file_exists = false;
-        if file_path.exists() {
+        if file_path.exists() && !expected_sha256.is_empty() {
+            // The portal publishes the checksum: a cached file is reused only if it matches.
+            if file_sha256(&file_path).ok().as_deref() == Some(expected_sha256.as_str()) {
+                is_file_exists = true;
+            } else {
+                std::fs::remove_file(&file_path)?;
+            }
+        } else if file_path.exists() {
             // Check if the file size is the same as the server file size
             // If the file size is the same, we don't need to download it again.
             let file_size = std::fs::metadata(&file_path)?.len();
@@ -223,8 +248,25 @@ fn check_update(manually: bool) -> ResultType<()> {
                 );
             }
             let file_data = response.bytes()?;
-            let mut file = std::fs::File::create(&file_path)?;
-            file.write_all(&file_data)?;
+            if !expected_sha256.is_empty() {
+                let actual = hex::encode(Sha256::digest(&file_data));
+                if actual != expected_sha256 {
+                    bail!(
+                        "Downloaded update checksum mismatch: expected {}, got {}",
+                        expected_sha256,
+                        actual
+                    );
+                }
+            }
+            // Write to a temporary file first, so an interrupted write never leaves
+            // a truncated installer under the final name.
+            let part_path = file_path.with_extension("part");
+            {
+                let mut file = std::fs::File::create(&part_path)?;
+                file.write_all(&file_data)?;
+                file.sync_all()?;
+            }
+            std::fs::rename(&part_path, &file_path)?;
         }
         // We have checked if the `conns` is empty before, but we need to check again.
         // No need to care about the downloaded file here, because it's rare case that the `conns` are empty
@@ -234,7 +276,16 @@ fn check_update(manually: bool) -> ResultType<()> {
             update_new_version(update_msi, version_owned.as_str(), &file_path);
         }
     }
-    Ok(())
+    // A successful update restarts the service, so reaching the next check means
+    // the new version is still not installed.
+    Ok(true)
+}
+
+fn file_sha256(path: &PathBuf) -> ResultType<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[cfg(target_os = "windows")]

@@ -3362,20 +3362,57 @@ String basePeerId(String id) {
   return i >= 0 ? id.substring(0, i) : id;
 }
 
-String getDesktopTabLabel(String peerId, String alias) {
-  String label = alias.isEmpty ? peerId : alias;
-  try {
-    String peer = bind.mainGetPeerSync(id: basePeerId(peerId));
-    Map<String, dynamic> config = jsonDecode(peer);
-    if (config['info']['hostname'] is String) {
-      String hostname = config['info']['hostname'];
-      if (hostname.isNotEmpty &&
-          !label.toLowerCase().contains(hostname.toLowerCase())) {
-        label += "@$hostname";
-      }
+/// Ids under which a peer's config may be stored: the session stores it as
+/// `id@server` (without `?key=...`), the address book alias is kept by `id`.
+List<String> peerConfigIds(String id) {
+  final q = id.indexOf('?');
+  final noKey = q >= 0 ? id.substring(0, q) : id;
+  return <String>{noKey, id, basePeerId(id)}.toList();
+}
+
+/// Last non-empty alias/hostname per tab id, so a tab label does not fall back
+/// to the raw `id@server` when the config is temporarily unavailable.
+final Map<String, String> _lastTabAlias = {};
+final Map<String, String> _lastTabHostname = {};
+
+String getPeerAliasForTab(String peerId) {
+  for (final id in peerConfigIds(peerId)) {
+    final alias = bind.mainGetPeerOptionSync(id: id, key: 'alias');
+    if (alias.isNotEmpty) {
+      _lastTabAlias[peerId] = alias;
+      return alias;
     }
-  } catch (e) {
-    debugPrint("Failed to get hostname:$e");
+  }
+  return _lastTabAlias[peerId] ?? '';
+}
+
+String _getPeerHostnameForTab(String peerId) {
+  for (final id in peerConfigIds(peerId)) {
+    try {
+      Map<String, dynamic> config = jsonDecode(bind.mainGetPeerSync(id: id));
+      final hostname = config['info']?['hostname'];
+      if (hostname is String && hostname.isNotEmpty) {
+        _lastTabHostname[peerId] = hostname;
+        return hostname;
+      }
+    } catch (e) {
+      debugPrint("Failed to get hostname:$e");
+    }
+  }
+  return _lastTabHostname[peerId] ?? '';
+}
+
+String getDesktopTabLabel(String peerId, String alias) {
+  if (alias.isNotEmpty) {
+    _lastTabAlias[peerId] = alias;
+  } else {
+    alias = _lastTabAlias[peerId] ?? '';
+  }
+  String label = alias.isEmpty ? peerId : alias;
+  final hostname = _getPeerHostnameForTab(peerId);
+  if (hostname.isNotEmpty &&
+      !label.toLowerCase().contains(hostname.toLowerCase())) {
+    label += "@$hostname";
   }
   return label;
 }

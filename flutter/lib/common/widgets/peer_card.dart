@@ -1575,6 +1575,15 @@ void connectInPeerTab(BuildContext context, Peer peer, PeerTabIndex tab,
     showToast(translate('Public key is required for the custom server'));
     return;
   }
+  // The session of a custom-server peer stores its config as `id@server`;
+  // keep the address book alias there too, so the tab label shows it.
+  if (tab == PeerTabIndex.ab && tagServer != null && peer.alias.isNotEmpty) {
+    final sessionId =
+        peerConfigIds('${peer.id}@${tagServer.connectionArg}').first;
+    if ((await bind.mainGetPeerOption(id: sessionId, key: "alias")).isEmpty) {
+      await bind.mainSetPeerAlias(id: sessionId, alias: peer.alias);
+    }
+  }
   connect(context, peer.id,
       customServer: tagServer?.connectionArg,
       password: password,

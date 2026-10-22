@@ -8,9 +8,11 @@ use winapi::shared::minwindef::FALSE;
 
 #[repr(C)]
 #[allow(non_camel_case_types)]
+#[derive(Clone, Copy)]
 enum ExtendedNameFormat {
     NameSamCompatible = 2,
     NameDisplay = 3,
+    NameUserPrincipal = 8,
 }
 
 #[repr(C)]
@@ -28,6 +30,19 @@ extern "system" {
         lpTranslatedName: *mut u16,
         nSize: *mut u32,
     ) -> u8;
+}
+
+const NERR_SUCCESS: u32 = 0;
+const NET_SETUP_DOMAIN_NAME: u32 = 3;
+
+#[link(name = "Netapi32")]
+extern "system" {
+    fn NetGetJoinInformation(
+        lpServer: *const u16,
+        lpNameBuffer: *mut *mut u16,
+        BufferType: *mut u32,
+    ) -> u32;
+    fn NetApiBufferFree(Buffer: *mut std::ffi::c_void) -> u32;
 }
 
 #[link(name = "Kernel32")]
@@ -73,17 +88,41 @@ fn get_computer_dns_domain() -> String {
         .to_string()
 }
 
+/// NetBIOS name of the joined domain (e.g. `CORP`), expected by `NameSamCompatible`.
+fn get_netbios_domain() -> String {
+    let mut buf: *mut u16 = std::ptr::null_mut();
+    let mut join_status: u32 = 0;
+    unsafe {
+        if NetGetJoinInformation(std::ptr::null(), &mut buf, &mut join_status) != NERR_SUCCESS
+            || buf.is_null()
+        {
+            return String::new();
+        }
+        let mut len = 0;
+        while *buf.add(len) != 0 {
+            len += 1;
+        }
+        let name = String::from_utf16_lossy(std::slice::from_raw_parts(buf, len));
+        NetApiBufferFree(buf as _);
+        if join_status == NET_SETUP_DOMAIN_NAME {
+            name.trim().to_owned()
+        } else {
+            String::new()
+        }
+    }
+}
+
 fn domains_equal(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
-fn translate_sam_to_display(sam: &str) -> Option<String> {
-    let sam_wide = wide_null(sam);
+fn translate_to_display(name: &str, format: ExtendedNameFormat) -> Option<String> {
+    let sam_wide = wide_null(name);
     let mut size: u32 = 0;
     unsafe {
         TranslateNameW(
             sam_wide.as_ptr(),
-            ExtendedNameFormat::NameSamCompatible,
+            format,
             ExtendedNameFormat::NameDisplay,
             std::ptr::null_mut(),
             &mut size,
@@ -96,7 +135,7 @@ fn translate_sam_to_display(sam: &str) -> Option<String> {
     unsafe {
         if TranslateNameW(
             sam_wide.as_ptr(),
-            ExtendedNameFormat::NameSamCompatible,
+            format,
             ExtendedNameFormat::NameDisplay,
             buf.as_mut_ptr(),
             &mut size,
@@ -176,15 +215,44 @@ pub fn get_active_user_display_name() -> Option<String> {
     if dns_domain.is_empty() {
         return None;
     }
-    let sam = build_sam_name(&username, &dns_domain);
-    translate_sam_to_display(&sam).or_else(|| {
-        let plain = sam_account_name(&username).to_string();
-        if plain.is_empty() {
-            None
-        } else {
-            Some(plain)
+    let account = sam_account_name(&username);
+    // `NameSamCompatible` needs the NetBIOS domain (CORP\user); the DNS domain form
+    // and UPN are kept as fallbacks for non-standard setups.
+    let netbios_domain = get_netbios_domain();
+    let mut candidates = Vec::new();
+    if username.contains('\\') {
+        candidates.push((username.clone(), ExtendedNameFormat::NameSamCompatible));
+    }
+    if !netbios_domain.is_empty() {
+        candidates.push((
+            format!("{}\\{}", netbios_domain, account),
+            ExtendedNameFormat::NameSamCompatible,
+        ));
+    }
+    candidates.push((
+        build_sam_name(&username, &dns_domain),
+        ExtendedNameFormat::NameSamCompatible,
+    ));
+    candidates.push((
+        format!("{}@{}", account, dns_domain),
+        ExtendedNameFormat::NameUserPrincipal,
+    ));
+    for (name, format) in candidates {
+        if let Some(display) = translate_to_display(&name, format) {
+            return Some(display);
         }
-    })
+    }
+    log::warn!(
+        "ad_ab_assign: AD displayName lookup failed for \"{}\" (netbios=\"{}\", dns=\"{}\"), using login",
+        username,
+        netbios_domain,
+        dns_domain
+    );
+    if account.is_empty() {
+        None
+    } else {
+        Some(account.to_string())
+    }
 }
 
 #[cfg(test)]

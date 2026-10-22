@@ -44,7 +44,8 @@ impl ttf_parser::OutlineBuilder for PathBuilderWrapper<'_> {
     }
 }
 
-// Draws a string of text with the white background rectangle onto the pixmap.
+// Draws a name tag onto the pixmap: a pill filled with `paint`, like AnyDesk does for the
+// pointer of the remote user. The text is white, or black if `dark_text` is set.
 pub(super) fn draw_text(
     pixmap: &mut PixmapMut,
     face: &Face,
@@ -53,6 +54,7 @@ pub(super) fn draw_text(
     y: f32,
     paint: &Paint,
     font_size: f32,
+    dark_text: bool,
 ) {
     let units_per_em = face.units_per_em() as f32;
     let scale = font_size / units_per_em;
@@ -71,17 +73,18 @@ pub(super) fn draw_text(
     let ascent = face.ascender() as f32 * scale;
     // Add some padding around the text
     let padding = 3.0;
+    let padding_x = 8.0;
 
     let mut bg_filled = false;
-    // --- 2. Draw the white background rectangle ---
+    // --- 2. Draw the tag background ---
     if let Some(bg_rect) = Rect::from_xywh(
-        x - padding,
+        x - padding_x,
         y - ascent - padding,
-        total_width + 2.0 * padding,
+        total_width + 2.0 * padding_x,
         font_height + 2.0 * padding,
     ) {
-        // Corner radius
-        let radius = 5.0;
+        // Fully rounded ends
+        let radius = bg_rect.height() / 2.0;
         let path = {
             let mut pb = PathBuilder::new();
             let r_x = bg_rect.x();
@@ -102,16 +105,17 @@ pub(super) fn draw_text(
         };
 
         if let Some(path) = path {
-            let mut bg_paint = Paint::default();
-            bg_paint.set_color_rgba8(255, 255, 255, 255);
-            bg_paint.anti_alias = true;
+            let mut shadow_paint = Paint::default();
+            shadow_paint.set_color_rgba8(0, 0, 0, 60);
+            shadow_paint.anti_alias = true;
             pixmap.fill_path(
                 &path,
-                &bg_paint,
+                &shadow_paint,
                 FillRule::Winding,
-                Transform::identity(),
+                Transform::from_translate(0.0, 1.5),
                 None,
             );
+            pixmap.fill_path(&path, paint, FillRule::Winding, Transform::identity(), None);
             bg_filled = true;
         }
     }
@@ -139,7 +143,8 @@ pub(super) fn draw_text(
     if let Some(path) = path_builder.finish() {
         if bg_filled {
             let mut text_paint = Paint::default();
-            text_paint.set_color_rgba8(0, 0, 0, 255);
+            let text_value = if dark_text { 0 } else { 255 };
+            text_paint.set_color_rgba8(text_value, text_value, text_value, 255);
             text_paint.anti_alias = true;
             pixmap.fill_path(
                 &path,

@@ -3415,19 +3415,36 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
     // while I cannot find them by `tasklist` or the methods above.
     // There's should be 4 processes running: service, server, tray and main window.
     // But only 2 processes are shown in the tasklist.
+    // The killed processes may still hold the files for a moment and XCOPY /C skips
+    // locked files silently, so verify the installed exe and retry the copy.
+    // `exit /b 1` keeps the `.undone` marker, which makes `run_cmds` report the failure.
     let cmds = format!(
         "
 chcp 65001
 sc stop {app_name}
 taskkill /F /IM {app_name}.exe{filter}
 {reg_cmd}
+set /a RD_UPDATE_TRY=0
+:RD_UPDATE_COPY
 {copy_exe}
 {rename_exe}
+fc /b \"{src_exe}\" \"{exe}\" >nul 2>&1
+if not errorlevel 1 goto RD_UPDATE_COPIED
+set /a RD_UPDATE_TRY+=1
+if %RD_UPDATE_TRY% GEQ 10 goto RD_UPDATE_COPY_FAILED
+sc stop {app_name}
+taskkill /F /IM {app_name}.exe{filter}
+ping -n 4 127.0.0.1 >nul
+goto RD_UPDATE_COPY
+:RD_UPDATE_COPY_FAILED
+set RD_UPDATE_FAILED=1
+:RD_UPDATE_COPIED
 {remove_meta_toml}
 {restore_service_cmd}
 {uninstall_printer_cmd}
 {install_printer_cmd}
 {sleep}
+if defined RD_UPDATE_FAILED exit /b 1
     ",
         app_name = app_name,
         copy_exe = copy_exe_cmd(&src_exe, &exe, &path)?,

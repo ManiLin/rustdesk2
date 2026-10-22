@@ -44,6 +44,10 @@ docker compose up -d --build
 - Портал использует `RUSTDESKWEB_API_URL` / `RUSTDESKWEB_API_TOKEN`, домен `AD_DOMAIN`
   и коллекцию `PRESET_ADDRESS_BOOK_NAME`.
 - Если `RUSTDESKWEB_API_TOKEN` не задан — назначение отключено (ответ `disabled`).
+- Дубли: если в коллекции есть запись с тем же именем (ФИО), но другим ID, и тот ПК
+  не был в сети больше 10 дней (последний отчёт на портал или `last_online_time`
+  в rustdeskweb), запись удаляется. Если время последнего входа неизвестно — запись
+  остаётся. Проверка для каждого имени — не чаще раза в час.
 - На клиенте URL портала берётся из `inventory-report-url` (база), токен — из
   `inventory-report-token` или `RS_PUB_KEY`.
 
@@ -78,7 +82,7 @@ docker compose up -d --build
 ### Установка Windows одной командой
 
 В PowerShell на целевом устройстве выполните нужную команду. API определит архитектуру,
-скачает опубликованный MSI, проверит SHA-256 и запустит тихую установку с запросом UAC:
+скачает опубликованный EXE, проверит SHA-256 и запустит встроенную тихую установку с запросом UAC:
 
 ```powershell
 irm "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/install/windows.ps1?flavor=normal" | iex
@@ -90,8 +94,8 @@ irm "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/install/windows.ps1?flavor=n
 irm "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/install/windows.ps1?flavor=cashdesk" | iex
 ```
 
-Установка доступна после загрузки и подтверждения администратором MSI нужного flavor и архитектуры.
-CI загружает отдельно MSI-установщик и EXE для автообновления.
+Установка доступна после загрузки и подтверждения администратором EXE нужного flavor и архитектуры.
+Скрипт запускает EXE с параметром `--silent-install`; этот же опубликованный EXE используется для автообновления.
 
 ## GitHub Actions
 
@@ -183,4 +187,4 @@ Material Web сейчас находится в режиме поддержки;
 - `POST /api/v1/ci/builds` — загрузка из CI (Bearer `CI_UPLOAD_TOKEN` или `INVENTORY_DEVICE_TOKEN`) → `pending`.
 - `GET /api/v1/downloads/rustdesk/windows/meta?flavor=normal|cashdesk` — публичный JSON для клиентского автообновления.
 - `GET /api/v1/downloads/rustdesk/windows/latest?flavor=...&artifact_type=exe|msi&architecture=...` — публичное скачивание подтверждённой сборки (по умолчанию EXE, поддерживает `HEAD`).
-- `GET /api/v1/install/windows.ps1?flavor=normal|cashdesk` — PowerShell-скрипт установки опубликованного MSI; перед запуском сверяется SHA-256.
+- `GET /api/v1/install/windows.ps1?flavor=normal|cashdesk` — PowerShell-скрипт установки опубликованного EXE с `--silent-install`; перед запуском сверяется SHA-256.

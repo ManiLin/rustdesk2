@@ -147,7 +147,7 @@ pub(super) fn create_event_loop() -> ResultType<()> {
 
                 for cursor in last_cursors.values() {
                     let (x, y) = (cursor.x, cursor.y);
-                    let size = 1.5f32;
+                    let size = 1.1f32;
 
                     let mut pb = PathBuilder::new();
                     pb.move_to(x, y);
@@ -161,6 +161,16 @@ pub(super) fn create_event_loop() -> ResultType<()> {
 
                     if let Some(path) = pb.finish() {
                         let rgba = super::argb_to_rgba(cursor.argb);
+                        let mut shadow_paint = Paint::default();
+                        shadow_paint.set_color_rgba8(0, 0, 0, 70);
+                        shadow_paint.anti_alias = true;
+                        pixmap.fill_path(
+                            &path,
+                            &shadow_paint,
+                            FillRule::Winding,
+                            Transform::from_translate(1.0, 2.0),
+                            None,
+                        );
                         let mut arrow_paint = Paint::default();
                         // Note: The real color is bgra here.
                         arrow_paint.set_color_rgba8(rgba.2, rgba.1, rgba.0, rgba.3);
@@ -173,14 +183,14 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                             None,
                         );
 
-                        let mut black_paint = Paint::default();
-                        black_paint.set_color_rgba8(0, 0, 0, 255);
-                        black_paint.anti_alias = true;
+                        let mut outline_paint = Paint::default();
+                        outline_paint.set_color_rgba8(255, 255, 255, 255);
+                        outline_paint.anti_alias = true;
                         let mut stroke = Stroke::default();
-                        stroke.width = 1.0f32;
+                        stroke.width = 1.5f32;
                         pixmap.stroke_path(
                             &path,
-                            &black_paint,
+                            &outline_paint,
                             &stroke,
                             Transform::identity(),
                             None,
@@ -191,10 +201,11 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                                 &mut pixmap,
                                 face,
                                 &cursor.text,
-                                x + 24.0 * size,
-                                y + 24.0 * size,
+                                x + 19.0 * size,
+                                y + 30.0 * size,
                                 &arrow_paint,
-                                14.0f32,
+                                13.0f32,
+                                super::server::is_light_argb(cursor.argb),
                             );
                         });
                     }

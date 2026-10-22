@@ -15,6 +15,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -45,6 +46,8 @@ struct AppState {
     ad_domain: String,
     preset_address_book_name: String,
     collection_cache: Arc<tokio::sync::Mutex<Option<CollectionRef>>>,
+    /// Lowercased alias -> last time its duplicates were checked (unix seconds).
+    ab_duplicates_checked: Arc<tokio::sync::Mutex<HashMap<String, i64>>>,
 }
 
 /// Resolved lejianwen rustdesk-api address book collection (user + collection).
@@ -840,19 +843,24 @@ async fn upsert_address_book_entry(
         anyhow::bail!("display name is empty");
     }
     let list_path = format!(
-        "/api/admin/address_book/list?page=1&page_size=10&user_id={}&collection_id={}&id={}",
+        "/api/admin/address_book/list?page=1&page_size=100&user_id={}&collection_id={}&id={}",
         collection.user_id, collection.collection_id, peer_id
     );
     let v = rustdeskweb_request(state, reqwest::Method::GET, &list_path, None).await?;
-    let row_id = if rustdeskweb_code_ok(&v) {
-        v.pointer("/data/list")
-            .and_then(|l| l.as_array())
-            .and_then(|l| l.first())
-            .and_then(|i| i.get("row_id"))
-            .and_then(|n| n.as_u64())
-    } else {
-        None
-    };
+    if !rustdeskweb_code_ok(&v) {
+        // Do not guess: creating blindly could leave a stale alias; the client retries.
+        anyhow::bail!("address book list failed: {}", rustdeskweb_message(&v));
+    }
+    // The `id` filter may match by substring, so pick only the exact peer.
+    let row_id = v
+        .pointer("/data/list")
+        .and_then(|l| l.as_array())
+        .and_then(|l| {
+            l.iter()
+                .find(|i| i.get("id").and_then(|id| id.as_str()) == Some(peer_id))
+        })
+        .and_then(|i| i.get("row_id"))
+        .and_then(|n| n.as_u64());
 
     if let Some(row_id) = row_id {
         let body = serde_json::json!({
@@ -899,6 +907,127 @@ async fn upsert_address_book_entry(
         return Ok(());
     }
     anyhow::bail!("create failed: {}", msg);
+}
+
+/// A same-alias entry of another peer is removed once that peer is offline this long.
+const AB_DUPLICATE_OFFLINE_SECS: i64 = 10 * 24 * 60 * 60;
+/// How often the duplicates of one alias are rechecked.
+const AB_DUPLICATE_CHECK_SECS: i64 = 60 * 60;
+const AB_LIST_PAGE_SIZE: usize = 100;
+
+/// `(row_id, peer id)` of entries with the same alias that belong to other peers.
+fn duplicate_alias_rows(list: &[serde_json::Value], alias: &str, peer_id: &str) -> Vec<(u64, String)> {
+    let alias = alias.trim().to_lowercase();
+    list.iter()
+        .filter_map(|item| {
+            let id = item.get("id")?.as_str()?.trim();
+            let item_alias = item.get("alias")?.as_str()?.trim().to_lowercase();
+            let row_id = item.get("row_id")?.as_u64()?;
+            (!id.is_empty() && id != peer_id && item_alias == alias)
+                .then(|| (row_id, id.to_owned()))
+        })
+        .collect()
+}
+
+/// Last time the peer was seen online: inventory reports (every few minutes) or
+/// rustdeskweb `last_online_time`, whichever is newer. `None` if unknown.
+async fn peer_last_seen(state: &AppState, peer_id: &str) -> Option<i64> {
+    let reported: Option<i64> =
+        sqlx::query_scalar("SELECT updated_at FROM devices WHERE rustdesk_id = ?")
+            .bind(peer_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+    let online = rustdeskweb_request(
+        state,
+        reqwest::Method::GET,
+        &format!("/api/admin/peer/list?page=1&page_size=100&id={}", peer_id),
+        None,
+    )
+    .await
+    .ok()
+    .filter(rustdeskweb_code_ok)
+    .and_then(|v| {
+        v.pointer("/data/list")?
+            .as_array()?
+            .iter()
+            .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(peer_id))?
+            .get("last_online_time")?
+            .as_i64()
+    })
+    .filter(|t| *t > 0);
+    reported.into_iter().chain(online).max()
+}
+
+/// Remove entries that have the same alias as `peer_id` but another ID, if that
+/// other peer has been offline for more than `AB_DUPLICATE_OFFLINE_SECS`.
+/// Peers with unknown last-seen time are kept.
+async fn remove_stale_alias_duplicates(
+    state: &AppState,
+    collection: CollectionRef,
+    peer_id: &str,
+    alias: &str,
+) -> anyhow::Result<()> {
+    let now = now_ts();
+    let key = alias.trim().to_lowercase();
+    if let Some(checked) = state.ab_duplicates_checked.lock().await.get(&key) {
+        if now - checked < AB_DUPLICATE_CHECK_SECS {
+            return Ok(());
+        }
+    }
+
+    let mut duplicates = Vec::new();
+    for page in 1..=50 {
+        let path = format!(
+            "/api/admin/address_book/list?page={}&page_size={}&user_id={}&collection_id={}",
+            page, AB_LIST_PAGE_SIZE, collection.user_id, collection.collection_id
+        );
+        let v = rustdeskweb_request(state, reqwest::Method::GET, &path, None).await?;
+        if !rustdeskweb_code_ok(&v) {
+            anyhow::bail!("address book list failed: {}", rustdeskweb_message(&v));
+        }
+        let list = v
+            .pointer("/data/list")
+            .and_then(|l| l.as_array())
+            .cloned()
+            .unwrap_or_default();
+        duplicates.extend(duplicate_alias_rows(&list, alias, peer_id));
+        if list.len() < AB_LIST_PAGE_SIZE {
+            break;
+        }
+    }
+
+    for (row_id, dup_id) in duplicates {
+        let Some(last_seen) = peer_last_seen(state, &dup_id).await else {
+            tracing::info!(alias, dup = %dup_id, "ad assign: duplicate kept, last seen unknown");
+            continue;
+        };
+        let offline_secs = now - last_seen;
+        if offline_secs < AB_DUPLICATE_OFFLINE_SECS {
+            continue;
+        }
+        let v = rustdeskweb_request(
+            state,
+            reqwest::Method::POST,
+            "/api/admin/address_book/delete",
+            Some(serde_json::json!({ "row_id": row_id })),
+        )
+        .await?;
+        if !rustdeskweb_code_ok(&v) {
+            anyhow::bail!("delete {} failed: {}", dup_id, rustdeskweb_message(&v));
+        }
+        tracing::info!(
+            alias,
+            peer = %peer_id,
+            dup = %dup_id,
+            offline_days = offline_secs / 86400,
+            "ad assign: stale duplicate removed from address book"
+        );
+    }
+
+    state.ab_duplicates_checked.lock().await.insert(key, now);
+    Ok(())
 }
 
 async fn record_ad_assignment(state: &AppState, p: &AdAssignPayload, status: &str, message: &str) {
@@ -973,12 +1102,29 @@ async fn ad_assign_handler(
 
     let result = async {
         let collection = resolve_collection(&state).await?;
-        upsert_address_book_entry(&state, p.rustdesk_id.trim(), &p, collection).await
+        upsert_address_book_entry(&state, p.rustdesk_id.trim(), &p, collection).await?;
+        Ok::<_, anyhow::Error>(collection)
     }
     .await;
 
+    if result.is_err() {
+        // The collection may have been recreated in rustdeskweb; resolve it again next time.
+        *state.collection_cache.lock().await = None;
+    }
+
     match result {
-        Ok(()) => {
+        Ok(collection) => {
+            // Cleanup must not fail the assignment itself.
+            if let Err(e) = remove_stale_alias_duplicates(
+                &state,
+                collection,
+                p.rustdesk_id.trim(),
+                p.display_name.trim(),
+            )
+            .await
+            {
+                tracing::warn!(peer = %p.rustdesk_id, "ad assign: duplicate cleanup failed: {}", e);
+            }
             record_ad_assignment(&state, &p, "assigned", "").await;
             tracing::info!(peer = %p.rustdesk_id, alias = %p.display_name, "ad assign: assigned");
             Json(AdAssignResponse {
@@ -1790,21 +1936,20 @@ fn render_windows_install_script(public_base_url: &str, flavor: &str) -> String 
 $apiBase = '{public_base_url}'
 $flavor = '{flavor}'
 $architecture = if ($env:PROCESSOR_ARCHITEW6432 -eq 'ARM64' -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {{ 'aarch64' }} elseif ($env:PROCESSOR_ARCHITEW6432 -match 'AMD64|x86_64' -or $env:PROCESSOR_ARCHITECTURE -match 'AMD64|x86_64') {{ 'x86_64' }} else {{ 'x86' }}
-$metaUri = "$apiBase/api/v1/downloads/rustdesk/windows/meta?flavor=$flavor&platform=windows&artifact_type=msi&architecture=$architecture"
+$metaUri = "$apiBase/api/v1/downloads/rustdesk/windows/meta?flavor=$flavor&platform=windows&artifact_type=exe&architecture=$architecture"
 $meta = Invoke-RestMethod -Uri $metaUri -UseBasicParsing
 if (-not $meta.available -or [string]::IsNullOrWhiteSpace([string]$meta.sha256)) {{ throw "No approved $flavor installer is available for $architecture." }}
 $downloadUri = [System.Uri]::new([System.Uri]$apiBase, [string]$meta.download_path).AbsoluteUri
-$msiPath = Join-Path $env:TEMP ("TnursRemoteDesk-{{0}}-{{1}}-{{2}}.msi" -f $flavor, $architecture, [guid]::NewGuid().ToString('N'))
+$exePath = Join-Path $env:TEMP ("TnursRemoteDesk-{{0}}-{{1}}-{{2}}.exe" -f $flavor, $architecture, [guid]::NewGuid().ToString('N'))
 try {{
-  Invoke-WebRequest -Uri $downloadUri -OutFile $msiPath -UseBasicParsing
-  $actualSha256 = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash
+  Invoke-WebRequest -Uri $downloadUri -OutFile $exePath -UseBasicParsing
+  $actualSha256 = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash
   if ($actualSha256 -ine [string]$meta.sha256) {{ throw 'Installer checksum does not match the portal metadata.' }}
-  $arguments = '/i "{{0}}" /qn /norestart' -f $msiPath
-  $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -ArgumentList $arguments -Wait -PassThru -Verb RunAs
-  if ($process.ExitCode -notin @(0, 3010)) {{ throw "MSI installation failed with exit code $($process.ExitCode)." }}
-  Write-Output "TnursRemoteDesk ($flavor) installed. Restart required: $($process.ExitCode -eq 3010)."
+  $process = Start-Process -FilePath $exePath -ArgumentList '--silent-install' -Wait -PassThru -Verb RunAs
+  if ($process.ExitCode -ne 0) {{ throw "EXE installation failed with exit code $($process.ExitCode)." }}
+  Write-Output "TnursRemoteDesk ($flavor) installed."
 }} finally {{
-  Remove-Item -LiteralPath $msiPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $exePath -Force -ErrorAction SilentlyContinue
 }}
 "#
     )
@@ -2127,6 +2272,7 @@ async fn main() -> anyhow::Result<()> {
         ad_domain,
         preset_address_book_name,
         collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        ab_duplicates_checked: Default::default(),
     });
 
     // Axum по умолчанию режет тело запроса для Multipart (~2 МБ) — без этого большой rustdesk.exe не доходит до хендлера.
@@ -2146,7 +2292,7 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        admin_auth_error, build_app, get_published_build, issue_jwt,
+        admin_auth_error, build_app, duplicate_alias_rows, get_published_build, issue_jwt,
         migrate_build_artifact_columns, norm_architecture, norm_artifact_type, norm_flavor,
         norm_platform, normalize_public_base_url, normalize_server_host, AppState, Body, Request,
         SqlitePoolOptions, StatusCode, DEFAULT_PUBLIC_BASE_URL,
@@ -2201,6 +2347,7 @@ mod tests {
             ad_domain: String::new(),
             preset_address_book_name: String::new(),
             collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
+            ab_duplicates_checked: Default::default(),
         })
     }
 
@@ -2209,6 +2356,20 @@ mod tests {
             .await
             .expect("response body");
         serde_json::from_slice(&body).expect("JSON response")
+    }
+
+    #[test]
+    fn duplicate_alias_rows_match_other_peers_only() {
+        let list = vec![
+            json!({"row_id": 1, "id": "111", "alias": "Иванов Иван"}),
+            json!({"row_id": 2, "id": "222", "alias": " иванов иван "}),
+            json!({"row_id": 3, "id": "333", "alias": "Петров Пётр"}),
+            json!({"row_id": 4, "id": "", "alias": "Иванов Иван"}),
+        ];
+        assert_eq!(
+            duplicate_alias_rows(&list, "Иванов Иван", "111"),
+            vec![(2, "222".to_owned())]
+        );
     }
 
     #[test]
@@ -2322,9 +2483,9 @@ mod tests {
             .expect("script body");
         let script = String::from_utf8(body.to_vec()).expect("UTF-8 script");
         assert!(script.contains("$flavor = 'cashdesk'"));
-        assert!(script.contains("artifact_type=msi"));
+        assert!(script.contains("artifact_type=exe"));
         assert!(script.contains("Get-FileHash"));
-        assert!(script.contains("msiexec.exe"));
+        assert!(script.contains("--silent-install"));
         assert!(script.contains(DEFAULT_PUBLIC_BASE_URL));
     }
 

@@ -52,6 +52,8 @@ pub mod rdp_input;
 pub mod dbus;
 #[cfg(not(target_os = "android"))]
 pub mod input_service;
+#[cfg(windows)]
+mod local_mouse_hook;
 } else {
 mod clipboard_service {
 pub const NAME: &'static str = "";

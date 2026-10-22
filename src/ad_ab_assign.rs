@@ -142,6 +142,10 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
         };
 
         let peer_id = Config::get_id();
+        if peer_id.is_empty() {
+            log::debug!("ad_ab_assign: skip, RustDesk ID is not ready yet");
+            return Ok(());
+        }
         let status_value = format!("{}:{}", base, alias);
         if config::Status::get(STATUS_KEY) == status_value {
             // Already assigned; still revalidate periodically (no-op fast path).

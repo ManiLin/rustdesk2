@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, Ref } from "react";
 
 declare module "react" {
   namespace JSX {
@@ -9,6 +9,7 @@ declare module "react" {
       "md-outlined-button": HTMLAttributes<HTMLElement> & { disabled?: boolean; type?: string };
       "md-text-button": HTMLAttributes<HTMLElement> & { disabled?: boolean; type?: string };
       "md-outlined-text-field": HTMLAttributes<HTMLElement> & {
+        ref?: Ref<HTMLElement>;
         autocomplete?: string;
         label?: string;
         placeholder?: string;

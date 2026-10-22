@@ -312,11 +312,11 @@ paths:
   /api/v1/install/windows.ps1:
     get:
       tags: [Updates]
-      summary: Get a one-command Windows MSI installation script
+      summary: Get a one-command Windows EXE installation script
       parameters:
         - { in: query, name: flavor, required: true, schema: { type: string, enum: [normal, cashdesk] } }
       responses:
-        '200': { description: PowerShell script detects architecture, verifies installer SHA-256, and runs MSI installation }
+        '200': { description: PowerShell script detects architecture, verifies EXE SHA-256, and runs the EXE with --silent-install }
         '400': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:

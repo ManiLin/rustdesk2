@@ -143,17 +143,19 @@ function OutlinedButton(props: React.HTMLAttributes<HTMLElement> & { disabled?: 
   return <md-outlined-button {...props}>{props.children}</md-outlined-button>;
 }
 
+const buildLabel = (build: Build) => `${build.version}, ${build.platform}, ${build.flavor}`;
+
 function StatusPill({ status }: { status?: string }) {
   const value = formatStatus(status);
   return <span className={`status-pill status-${value.kind}`}>{value.label}</span>;
 }
 
 function Alert({ kind = "error", children }: { kind?: "error" | "success" | "info"; children: React.ReactNode }) {
-  return <div className={`alert alert-${kind}`} role={kind === "error" ? "alert" : "status"}>{children}</div>;
+  return <div className={`alert alert-${kind}`} >{children}</div>;
 }
 
 function Loading({ label = "Загрузка…" }: { label?: string }) {
-  return <div className="loading-state"><md-circular-progress indeterminate aria-label={label} />{label}</div>;
+  return <div className="loading-state" role="status"><md-circular-progress indeterminate aria-label={label} />{label}</div>;
 }
 
 function NavigationIcon({ page }: { page: Page }) {
@@ -170,6 +172,9 @@ export default function App() {
   const [page, setPage] = useState<Page>("devices");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const confirmDialog = useRef<HTMLDialogElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const serverNameRef = useRef<HTMLElement>(null);
+  const mountedRef = useRef(false);
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -199,13 +204,28 @@ export default function App() {
     if (!confirmation && dialog.open) dialog.close();
   }, [confirmation]);
 
+  useEffect(() => {
+    document.title = token ? `${PAGE_INFO[page].title} — TnursRemoteDeskWebApi` : "Вход";
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    headingRef.current?.focus();
+  }, [page, token]);
+
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
+    setLoginError("");
     setDevices([]);
     setBuilds([]);
     setServers([]);
   }, []);
+
+  const expireSession = useCallback(() => {
+    logout();
+    setLoginError("Сессия завершена. Войдите в портал заново.");
+  }, [logout]);
 
   const authHeaders = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -220,7 +240,7 @@ export default function App() {
         fetch("/api/v1/servers", { headers: authHeaders() }),
       ]);
       if (requests.some((response) => response.status === 401)) {
-        logout();
+        expireSession();
         return;
       }
       const failed = requests.find((response) => !response.ok);
@@ -237,7 +257,7 @@ export default function App() {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [token, authHeaders, logout]);
+  }, [token, authHeaders, expireSession]);
 
   useEffect(() => {
     if (token) void loadData();
@@ -276,10 +296,11 @@ export default function App() {
       const response = await fetch(`/api/v1/devices/${encodeURIComponent(device.rustdesk_id)}`, {
         method: "DELETE", headers: authHeaders(),
       });
-      if (response.status === 401) return logout();
+      if (response.status === 401) return expireSession();
       if (!response.ok) throw new Error(await responseError(response, "Не удалось удалить устройство"));
       setDevices((current) => current.filter((row) => row.rustdesk_id !== device.rustdesk_id));
       setNotice("Устройство удалено");
+      headingRef.current?.focus();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить устройство");
     } finally {
@@ -311,7 +332,7 @@ export default function App() {
     setNotice("");
     try {
       const response = await fetch("/api/v1/admin/builds", { method: "POST", headers: authHeaders(), body: form });
-      if (response.status === 401) return logout();
+      if (response.status === 401) return expireSession();
       if (!response.ok) throw new Error(await responseError(response, "Не удалось загрузить сборку"));
       setBuildVersion("");
       setBuildFile(null);
@@ -333,7 +354,7 @@ export default function App() {
       const response = await fetch(`/api/v1/admin/builds/${build.id}/${action}`, {
         method: "POST", headers: authHeaders(),
       });
-      if (response.status === 401) return logout();
+      if (response.status === 401) return expireSession();
       if (!response.ok) throw new Error(await responseError(response, "Не удалось изменить статус сборки"));
       await loadData(false);
       setNotice(action === "approve" ? "Сборка опубликована" : "Сборка отклонена");
@@ -357,10 +378,11 @@ export default function App() {
         const response = await fetch(`/api/v1/admin/builds/${build.id}`, {
           method: "DELETE", headers: authHeaders(),
         });
-        if (response.status === 401) return logout();
+        if (response.status === 401) return expireSession();
         if (!response.ok) throw new Error(await responseError(response, "Не удалось удалить сборку"));
         setBuilds((current) => current.filter((row) => row.id !== build.id));
         setNotice("Сборка удалена");
+        headingRef.current?.focus();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Не удалось удалить сборку");
       } finally {
@@ -381,7 +403,7 @@ export default function App() {
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ name: serverName.trim(), host: serverHost.trim(), public_key: serverKey.trim() }),
       });
-      if (response.status === 401) return logout();
+      if (response.status === 401) return expireSession();
       if (!response.ok) throw new Error(await responseError(response, "Не удалось сохранить сервер"));
       await loadData(false);
       setNotice(editingServer ? "Изменения сервера сохранены" : "Сервер добавлен в общий список");
@@ -401,7 +423,9 @@ export default function App() {
     setServerName(server.name);
     setServerHost(server.host);
     setServerKey(server.public_key);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+    requestAnimationFrame(() => serverNameRef.current?.focus({ preventScroll: true }));
   };
 
   const performDeleteServer = async (server: TagServer) => {
@@ -410,7 +434,7 @@ export default function App() {
     setError("");
     try {
       const response = await fetch(`/api/v1/admin/servers/${server.id}`, { method: "DELETE", headers: authHeaders() });
-      if (response.status === 401) return logout();
+      if (response.status === 401) return expireSession();
       if (!response.ok) throw new Error(await responseError(response, "Не удалось удалить сервер"));
       setServers((current) => current.filter((row) => row.id !== server.id));
       if (editingServer === server.id) {
@@ -420,6 +444,7 @@ export default function App() {
         setServerKey("");
       }
       setNotice("Сервер удалён");
+      headingRef.current?.focus();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить сервер");
     } finally {
@@ -438,27 +463,26 @@ export default function App() {
     const value = query.trim().toLowerCase();
     if (!value) return devices;
     return devices.filter((device) => [
-      device.rustdesk_id, device.hostname, device.username, device.ip_public, device.os_info,
+      device.rustdesk_id, device.hostname, device.username, device.ip_public, device.ip_local, device.os_info,
     ].some((field) => field.toLowerCase().includes(value)));
   }, [devices, query]);
 
   if (!token) {
     return (
       <main className="login-shell">
-        <form className="login-card surface-card" onSubmit={login}>
-          <h1>Вход в TnursRemoteDeskWebApi</h1>
-          <p className="supporting-text">Введите пароль администратора, чтобы управлять устройствами и сборками.</p>
+        <form className="login-card" onSubmit={login}>
+          <h1 className="sr-only" ref={headingRef} tabIndex={-1}>Вход</h1>
           <md-outlined-text-field
-            label="Пароль администратора"
+            label="Пароль"
             type="password"
             autocomplete="current-password"
             required
             value={password}
             onInput={(event: React.FormEvent<HTMLElement>) => setPassword((event.currentTarget as HTMLInputElement).value)}
           />
-          {loginError && <Alert>{loginError}</Alert>}
+          <div className="alert-region" aria-live="polite">{loginError && <Alert>{loginError}</Alert>}</div>
           <FilledButton type="submit" disabled={loginLoading || !password}>
-            {loginLoading ? "Вход…" : "Войти"}
+            {loginLoading ? "…" : "Войти"}
           </FilledButton>
         </form>
       </main>
@@ -468,6 +492,7 @@ export default function App() {
   const info = PAGE_INFO[page];
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Перейти к содержимому</a>
       <header className="top-app-bar">
         <button className="brand-button" type="button" onClick={() => setPage("devices")} aria-label="TnursRemoteDeskWebApi — на главную">
           <img className="brand-mark" src="/managment/favicon.ico" alt="" /><span className="brand-name">TnursRemoteDeskWebApi</span>
@@ -497,13 +522,15 @@ export default function App() {
           ))}
           <div className="nav-footer">Панель администратора</div>
         </nav>
-        <main className="page-content">
+        <main className="page-content" id="main-content" tabIndex={-1}>
           <div className="page-heading">
-            <div><div className="eyebrow">Управление</div><h1>{info.title}</h1><p>{info.description}</p></div>
-            <div className="page-count">{page === "devices" ? devices.length : page === "builds" ? builds.length : servers.length}</div>
+            <div><div className="eyebrow">Управление</div><h1 ref={headingRef} tabIndex={-1}>{info.title}</h1><p>{info.description}</p></div>
+            <div className="page-count"><span className="sr-only">Всего: </span>{page === "devices" ? devices.length : page === "builds" ? builds.length : servers.length}</div>
           </div>
-          {error && <Alert>{error}</Alert>}
-          {notice && <Alert kind="success">{notice}</Alert>}
+          <div className="alert-region" aria-live="polite">
+            {error && <Alert>{error}</Alert>}
+            {notice && <Alert kind="success">{notice}</Alert>}
+          </div>
           {loading ? <Loading /> : (
             <>
               {page === "devices" && (
@@ -516,21 +543,25 @@ export default function App() {
                       value={query}
                       onInput={(event: React.FormEvent<HTMLElement>) => setQuery((event.currentTarget as HTMLInputElement).value)}
                     />
-                    <span className="result-count">{filteredDevices.length} из {devices.length}</span>
+                    <span className="result-count" aria-live="polite" aria-atomic="true">{filteredDevices.length} из {devices.length}</span>
                   </div>
                   {filteredDevices.length === 0 ? <div className="empty-state">{devices.length ? "Ничего не найдено. Измените запрос." : "Устройства пока не отправляли отчёты."}</div> : (
-                    <div className="table-scroll"><table className="data-table">
-                      <thead><tr><th>Устройство</th><th>Пользователь</th><th>Система</th><th>IP</th><th>AD → адресная книга</th><th>Временный пароль</th><th>Обновлено</th><th /></tr></thead>
+                    <div className="table-scroll" tabIndex={0} role="region" aria-label="Таблица устройств"><table className="data-table">
+                      <thead><tr><th scope="col">Устройство</th><th scope="col">Пользователь</th><th scope="col">Система</th><th scope="col">IP</th><th scope="col">AD → адресная книга</th><th scope="col">Временный пароль</th><th scope="col">Обновлено</th><th scope="col"><span className="sr-only">Действия</span></th></tr></thead>
                       <tbody>{filteredDevices.map((device) => (
                         <tr key={device.rustdesk_id}>
                           <td><strong>{device.hostname || "Без имени"}</strong><span className="secondary-cell mono">{device.rustdesk_id}</span></td>
                           <td>{device.username || "—"}</td>
                           <td title={device.computer_summary}>{device.os_info || "—"}<span className="secondary-cell">{device.app_version}</span></td>
-                          <td className="mono">{device.ip_local || device.ip_public || "—"}</td>
-                          <td><StatusPill status={device.ad_status} />{device.ad_updated_at && <span className="secondary-cell">{formatDate(device.ad_updated_at)}</span>}{device.ad_message && <span className="secondary-cell" title={device.ad_message}>{device.ad_message}</span>}</td>
-                          <td><div className="password-cell"><code>{passwordVisible.includes(device.rustdesk_id) ? device.temporary_password || "—" : "••••••••"}</code><md-text-button onClick={() => setPasswordVisible((current) => current.includes(device.rustdesk_id) ? current.filter((id) => id !== device.rustdesk_id) : [...current, device.rustdesk_id])} aria-label={passwordVisible.includes(device.rustdesk_id) ? "Скрыть пароль" : "Показать пароль"}>{passwordVisible.includes(device.rustdesk_id) ? "Скрыть" : "Показать"}</md-text-button></div></td>
+                          <td className="mono">
+                            {device.ip_public && <span className="secondary-cell">Внешний: {device.ip_public}</span>}
+                            {device.ip_local && <span className="secondary-cell">Локальный: {device.ip_local}</span>}
+                            {!device.ip_public && !device.ip_local && "—"}
+                          </td>
+                          <td><StatusPill status={device.ad_status} />{device.ad_updated_at && <span className="secondary-cell">{formatDate(device.ad_updated_at)}</span>}{device.ad_message && <span className="secondary-cell wrap-text">{device.ad_message}</span>}</td>
+                          <td><div className="password-cell"><code>{passwordVisible.includes(device.rustdesk_id) ? device.temporary_password || "—" : <><span aria-hidden="true">••••••••</span><span className="sr-only">Пароль скрыт</span></>}</code><md-text-button onClick={() => setPasswordVisible((current) => current.includes(device.rustdesk_id) ? current.filter((id) => id !== device.rustdesk_id) : [...current, device.rustdesk_id])} aria-pressed={passwordVisible.includes(device.rustdesk_id)} aria-label={`${passwordVisible.includes(device.rustdesk_id) ? "Скрыть" : "Показать"} пароль устройства ${device.hostname || device.rustdesk_id}`}>{passwordVisible.includes(device.rustdesk_id) ? "Скрыть" : "Показать"}</md-text-button></div></td>
                           <td>{device.updated_at || "—"}</td>
-                          <td><md-text-button disabled={busyId === device.rustdesk_id} onClick={() => void deleteDevice(device)}>Удалить</md-text-button></td>
+                          <td><md-text-button disabled={busyId === device.rustdesk_id} onClick={() => void deleteDevice(device)} aria-label={`Удалить устройство ${device.hostname || device.rustdesk_id}`}>Удалить</md-text-button></td>
                         </tr>
                       ))}</tbody>
                     </table></div>
@@ -553,10 +584,10 @@ export default function App() {
                   </section>
                   <section className="surface-card data-card">
                     <div className="section-heading"><div><h2>История сборок</h2><p>Только сборки «Ожидают проверки» можно подтвердить или отклонить.</p></div></div>
-                    {builds.length === 0 ? <div className="empty-state">Сборок пока нет.</div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Сборка</th><th>Канал</th><th>Платформа</th><th>Файл и размер</th><th>Статус</th><th>Загружена</th><th>Действия</th></tr></thead><tbody>
+                    {builds.length === 0 ? <div className="empty-state">Сборок пока нет.</div> : <div className="table-scroll" tabIndex={0} role="region" aria-label="Таблица сборок"><table className="data-table"><thead><tr><th scope="col">Сборка</th><th scope="col">Канал</th><th scope="col">Платформа</th><th scope="col">Файл и размер</th><th scope="col">Статус</th><th scope="col">Загружена</th><th scope="col">Действия</th></tr></thead><tbody>
                       {builds.map((build) => <tr key={build.id}>
                         <td><strong>{build.version}</strong><span className="secondary-cell">#{build.id}</span></td><td>{build.flavor}</td><td>{build.platform}</td><td>{build.file_name}<span className="secondary-cell">{build.artifact_type}{build.architecture ? ` · ${build.architecture}` : ""} · {formatBytes(build.file_size)}</span></td><td><StatusPill status={build.status} /></td><td>{build.uploaded_at}</td>
-                        <td><div className="row-actions">{build.status === "pending" && <><md-filled-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "approve")}>Опубликовать</md-filled-button><md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "reject")}>Отклонить</md-outlined-button></>}<md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => deleteBuild(build)}>Удалить</md-outlined-button></div></td>
+                        <td><div className="row-actions">{build.status === "pending" && <><md-filled-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "approve")} aria-label={`Опубликовать сборку ${buildLabel(build)}`}>Опубликовать</md-filled-button><md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => void changeBuildStatus(build, "reject")} aria-label={`Отклонить сборку ${buildLabel(build)}`}>Отклонить</md-outlined-button></>}<md-outlined-button disabled={busyId === `build-${build.id}`} onClick={() => deleteBuild(build)} aria-label={`Удалить сборку ${buildLabel(build)}`}>Удалить</md-outlined-button></div></td>
                       </tr>)}
                     </tbody></table></div>}
                   </section>
@@ -568,7 +599,7 @@ export default function App() {
                   <section className="surface-card form-card">
                     <div className="section-heading"><div><h2>{editingServer ? "Изменить сервер" : "Добавить сервер"}</h2><p>Изменения сразу появятся в общем списке клиентов.</p></div></div>
                     <form className="form-grid server-form" onSubmit={(event) => void saveServer(event)}>
-                      <md-outlined-text-field label="Название" placeholder="Например, филиал Казань" value={serverName} onInput={(event: React.FormEvent<HTMLElement>) => setServerName((event.currentTarget as HTMLInputElement).value)} />
+                      <md-outlined-text-field ref={serverNameRef} label="Название" placeholder="Например, филиал Казань" value={serverName} onInput={(event: React.FormEvent<HTMLElement>) => setServerName((event.currentTarget as HTMLInputElement).value)} />
                       <md-outlined-text-field label="Адрес host:port" placeholder="rustdesk.example.ru:21116" required readonly={editingServer !== null} value={serverHost} onInput={(event: React.FormEvent<HTMLElement>) => setServerHost((event.currentTarget as HTMLInputElement).value)} />
                       <md-outlined-text-field className="wide-field" label="Публичный ключ" required value={serverKey} onInput={(event: React.FormEvent<HTMLElement>) => setServerKey((event.currentTarget as HTMLInputElement).value)} />
                       <div className="form-actions"><FilledButton type="submit" disabled={busyId === "server-save"}>{busyId === "server-save" ? "Сохранение…" : editingServer ? "Сохранить изменения" : "Добавить сервер"}</FilledButton>{editingServer && <md-text-button type="button" onClick={() => { setEditingServer(null); setServerName(""); setServerHost(""); setServerKey(""); }}>Отмена</md-text-button>}</div>
@@ -576,8 +607,8 @@ export default function App() {
                   </section>
                   <section className="surface-card data-card">
                     <div className="section-heading"><div><h2>Общий список</h2><p>Клиенты используют эти серверы при настройке тегов адресной книги.</p></div></div>
-                    {servers.length === 0 ? <div className="empty-state">Серверов пока нет.</div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Название</th><th>Адрес</th><th>Публичный ключ</th><th>Обновлён</th><th>Действия</th></tr></thead><tbody>
-                      {servers.map((server) => <tr key={server.id}><td><strong>{server.name || server.host}</strong></td><td className="mono">{server.host}</td><td><code className="key-value" title={server.public_key}>{server.public_key}</code></td><td>{server.updated_at}</td><td><div className="row-actions"><md-text-button onClick={() => editServer(server)}>Изменить</md-text-button><md-text-button disabled={busyId === `server-${server.id}`} onClick={() => void deleteServer(server)}>Удалить</md-text-button></div></td></tr>)}
+                    {servers.length === 0 ? <div className="empty-state">Серверов пока нет.</div> : <div className="table-scroll" tabIndex={0} role="region" aria-label="Таблица серверов"><table className="data-table"><thead><tr><th scope="col">Название</th><th scope="col">Адрес</th><th scope="col">Публичный ключ</th><th scope="col">Обновлён</th><th scope="col">Действия</th></tr></thead><tbody>
+                      {servers.map((server) => <tr key={server.id}><td><strong>{server.name || server.host}</strong></td><td className="mono">{server.host}</td><td><code className="key-value">{server.public_key}</code></td><td>{server.updated_at}</td><td><div className="row-actions"><md-text-button onClick={() => editServer(server)} aria-label={`Изменить сервер ${server.host}`}>Изменить</md-text-button><md-text-button disabled={busyId === `server-${server.id}`} onClick={() => void deleteServer(server)} aria-label={`Удалить сервер ${server.host}`}>Удалить</md-text-button></div></td></tr>)}
                     </tbody></table></div>}
                   </section>
                 </>
@@ -589,11 +620,12 @@ export default function App() {
             ref={confirmDialog}
             className="confirm-dialog"
             aria-labelledby="confirm-title"
+            aria-describedby="confirm-message"
             onCancel={(event) => { event.preventDefault(); setConfirmation(null); }}
           >
             {confirmation && <>
               <h2 id="confirm-title">{confirmation.title}</h2>
-              <p>{confirmation.message}</p>
+              <p id="confirm-message">{confirmation.message}</p>
               <div className="confirm-actions">
                 <md-text-button onClick={() => setConfirmation(null)}>Отмена</md-text-button>
                 <md-filled-button onClick={() => {

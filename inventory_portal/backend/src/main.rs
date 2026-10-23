@@ -46,6 +46,9 @@ struct AppState {
     ad_domain: String,
     preset_address_book_name: String,
     collection_cache: Arc<tokio::sync::Mutex<Option<CollectionRef>>>,
+    /// Collection for devices outside the AD domain (and cashdesk builds).
+    other_address_book_name: String,
+    other_collection_cache: Arc<tokio::sync::Mutex<Option<CollectionRef>>>,
     /// Lowercased alias -> last time its duplicates were checked (unix seconds).
     ab_duplicates_checked: Arc<tokio::sync::Mutex<HashMap<String, i64>>>,
 }
@@ -781,12 +784,25 @@ async fn rustdeskweb_request(
 }
 
 async fn resolve_collection(state: &AppState) -> anyhow::Result<CollectionRef> {
-    if let Some(c) = *state.collection_cache.lock().await {
+    resolve_collection_named(
+        state,
+        &state.preset_address_book_name,
+        &state.collection_cache,
+    )
+    .await
+}
+
+async fn resolve_collection_named(
+    state: &AppState,
+    name: &str,
+    cache: &tokio::sync::Mutex<Option<CollectionRef>>,
+) -> anyhow::Result<CollectionRef> {
+    if let Some(c) = *cache.lock().await {
         return Ok(c);
     }
-    let name = state.preset_address_book_name.trim();
+    let name = name.trim();
     if name.is_empty() {
-        anyhow::bail!("preset address book name is empty");
+        anyhow::bail!("address book name is empty");
     }
     let v = rustdeskweb_request(
         state,
@@ -806,7 +822,7 @@ async fn resolve_collection(state: &AppState) -> anyhow::Result<CollectionRef> {
         .unwrap_or_default();
     for item in &list {
         let cname = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if cname.eq_ignore_ascii_case(name) {
+        if cname.to_lowercase() == name.to_lowercase() {
             let user_id = item.get("user_id").and_then(|n| n.as_u64()).unwrap_or(0);
             let collection_id = item.get("id").and_then(|n| n.as_u64()).unwrap_or(0);
             if user_id > 0 {
@@ -814,7 +830,7 @@ async fn resolve_collection(state: &AppState) -> anyhow::Result<CollectionRef> {
                     user_id,
                     collection_id,
                 };
-                *state.collection_cache.lock().await = Some(found);
+                *cache.lock().await = Some(found);
                 tracing::info!(
                     name,
                     user_id,
@@ -1137,6 +1153,123 @@ async fn ad_assign_handler(
             let msg = e.to_string();
             record_ad_assignment(&state, &p, "error", &msg).await;
             tracing::warn!(peer = %p.rustdesk_id, "ad assign failed: {}", msg);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ApiError {
+                    code: "bad_gateway",
+                    message: msg,
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Adds `peer_id` to the collection without an alias (the book shows the ID).
+/// An existing entry is left untouched.
+async fn ensure_address_book_id(
+    state: &AppState,
+    peer_id: &str,
+    payload: &AdAssignPayload,
+    collection: CollectionRef,
+) -> anyhow::Result<()> {
+    let list_path = format!(
+        "/api/admin/address_book/list?page=1&page_size=100&user_id={}&collection_id={}&id={}",
+        collection.user_id, collection.collection_id, peer_id
+    );
+    let v = rustdeskweb_request(state, reqwest::Method::GET, &list_path, None).await?;
+    if !rustdeskweb_code_ok(&v) {
+        anyhow::bail!("address book list failed: {}", rustdeskweb_message(&v));
+    }
+    let exists = v
+        .pointer("/data/list")
+        .and_then(|l| l.as_array())
+        .is_some_and(|l| {
+            l.iter()
+                .any(|i| i.get("id").and_then(|id| id.as_str()) == Some(peer_id))
+        });
+    if exists {
+        return Ok(());
+    }
+    let body = serde_json::json!({
+        "id": peer_id,
+        "user_id": collection.user_id,
+        "collection_id": collection.collection_id,
+        "username": payload.username,
+        "hostname": payload.hostname,
+        "platform": payload.platform,
+    });
+    let v = rustdeskweb_request(
+        state,
+        reqwest::Method::POST,
+        "/api/admin/address_book/create",
+        Some(body),
+    )
+    .await?;
+    if rustdeskweb_code_ok(&v) {
+        return Ok(());
+    }
+    let msg = rustdeskweb_message(&v);
+    if msg.contains("ItemExists") || msg.contains("exists") {
+        return Ok(());
+    }
+    anyhow::bail!("create failed: {}", msg);
+}
+
+/// Devices outside the AD domain and cashdesk builds: put the ID into the
+/// `OTHER_ADDRESS_BOOK_NAME` collection so they can be connected right away.
+async fn ab_register_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(p): Json<AdAssignPayload>,
+) -> impl IntoResponse {
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if !verify_device_token(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let peer_id = p.rustdesk_id.trim();
+    if peer_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, "rustdesk_id required").into_response();
+    }
+    if state.rustdeskweb_api_token.is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AdAssignResponse {
+                status: "disabled",
+                message: Some("rustdeskweb token is not configured".into()),
+            }),
+        )
+            .into_response();
+    }
+
+    let result = async {
+        let collection = resolve_collection_named(
+            &state,
+            &state.other_address_book_name,
+            &state.other_collection_cache,
+        )
+        .await?;
+        ensure_address_book_id(&state, peer_id, &p, collection).await
+    }
+    .await;
+
+    match result {
+        Ok(()) => {
+            let book = state.other_address_book_name.trim();
+            record_ad_assignment(&state, &p, "assigned", book).await;
+            tracing::info!(peer = %peer_id, book, "ab register: assigned");
+            Json(AdAssignResponse {
+                status: "assigned",
+                message: None,
+            })
+            .into_response()
+        }
+        Err(e) => {
+            // The collection may have been recreated in rustdeskweb; resolve it again next time.
+            *state.other_collection_cache.lock().await = None;
+            let msg = e.to_string();
+            record_ad_assignment(&state, &p, "error", &msg).await;
+            tracing::warn!(peer = %peer_id, "ab register failed: {}", msg);
             (
                 StatusCode::BAD_GATEWAY,
                 Json(ApiError {
@@ -2039,6 +2172,7 @@ fn build_app(state: Arc<AppState>, upload_body_limit: usize) -> Router {
         .route("/api/v1/health", get(|| async { "ok" }))
         .route("/api/v1/report", post(report_handler))
         .route("/api/v1/ad/assign", post(ad_assign_handler))
+        .route("/api/v1/ab/register", post(ab_register_handler))
         .route("/api/v1/auth/login", post(login_handler))
         .route("/api/v1/devices", get(devices_handler))
         .route(
@@ -2140,6 +2274,8 @@ async fn main() -> anyhow::Result<()> {
     let ad_domain = env::var("AD_DOMAIN").unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
     let preset_address_book_name = env::var("PRESET_ADDRESS_BOOK_NAME")
         .unwrap_or_else(|_| "corp.tatnefturs.tatar".to_string());
+    let other_address_book_name = env::var("OTHER_ADDRESS_BOOK_NAME")
+        .unwrap_or_else(|_| "everyone".to_string());
     if rustdeskweb_api_token.is_empty() {
         tracing::warn!("RUSTDESKWEB_API_TOKEN not set: AD address book assignment is disabled");
     }
@@ -2272,6 +2408,8 @@ async fn main() -> anyhow::Result<()> {
         ad_domain,
         preset_address_book_name,
         collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        other_address_book_name,
+        other_collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
         ab_duplicates_checked: Default::default(),
     });
 
@@ -2347,6 +2485,8 @@ mod tests {
             ad_domain: String::new(),
             preset_address_book_name: String::new(),
             collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
+            other_address_book_name: String::new(),
+            other_collection_cache: Arc::new(tokio::sync::Mutex::new(None)),
             ab_duplicates_checked: Default::default(),
         })
     }

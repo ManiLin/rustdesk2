@@ -16,6 +16,7 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tnremdeskapi.pxy2.tatnefturs.ru}
       AD_DOMAIN: ${AD_DOMAIN:-corp.tatnefturs.tatar}
       PRESET_ADDRESS_BOOK_NAME: ${PRESET_ADDRESS_BOOK_NAME:-corp.tatnefturs.tatar}
+      OTHER_ADDRESS_BOOK_NAME: ${OTHER_ADDRESS_BOOK_NAME:-everyone}
       BIND_ADDR: 0.0.0.0:8080
       RUST_LOG: tnurs_remotedesk_web_api=info,tower_http=info
     volumes:

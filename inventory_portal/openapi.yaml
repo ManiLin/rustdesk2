@@ -64,6 +64,31 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /api/v1/ab/register:
+    post:
+      tags: [Client]
+      summary: Add a device outside the AD domain (or a cashdesk build) to the other address book by ID
+      security: [{ DeviceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdAssignment' }
+      responses:
+        '200':
+          description: Registration outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [assigned] }
+                  message: { type: string }
+                required: [status]
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /api/v1/auth/login:
     post:
       tags: [Admin]

@@ -1,4 +1,6 @@
 //! Auto-assign domain PCs to the shared address book.
+//! PCs outside the AD domain and cashdesk builds are added by ID to a separate
+//! address book.
 //!
 //! The rustdeskweb admin token is **not** on the client anymore: the client
 //! only reports its AD identity to the inventory portal, which performs the
@@ -19,25 +21,19 @@ const FIRST_DELAY: Duration = Duration::from_secs(3);
 const RETRY_DELAY: Duration = Duration::from_secs(15);
 const INTERVAL: Duration = Duration::from_secs(300);
 const STATUS_KEY: &str = "ad_ab_assign_alias";
+const OTHER_STATUS_KEY: &str = "ab_register_other";
 
-static LOGGED_DISABLED: AtomicBool = AtomicBool::new(false);
 static LOGGED_NO_PORTAL: AtomicBool = AtomicBool::new(false);
-static LOGGED_NOT_IN_DOMAIN: AtomicBool = AtomicBool::new(false);
 static LOGGED_NOT_INSTALLED: AtomicBool = AtomicBool::new(false);
 static LOGGED_NO_DISPLAY_NAME: AtomicBool = AtomicBool::new(false);
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start() {
-    if !app_build_config::ad_address_book_features_enabled() {
-        if !LOGGED_DISABLED.swap(true, Ordering::SeqCst) {
-            log::info!(
-                "ad_ab_assign: disabled (cashdesk={}, incoming_only={})",
-                app_build_config::is_cashdesk_ui_build(),
-                config::is_incoming_only()
-            );
-        }
-        return;
-    }
+    log::info!(
+        "ad_ab_assign: start (cashdesk={}, incoming_only={})",
+        app_build_config::is_cashdesk_ui_build(),
+        config::is_incoming_only()
+    );
     std::thread::spawn(|| {
         if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -60,7 +56,8 @@ async fn run_loop() {
             continue;
         }
         allow_err!(try_auto_assign_address_book().await);
-        let assigned = !config::Status::get(STATUS_KEY).is_empty();
+        let assigned = !config::Status::get(STATUS_KEY).is_empty()
+            || !config::Status::get(OTHER_STATUS_KEY).is_empty();
         tokio::time::sleep(if assigned { INTERVAL } else { RETRY_DELAY }).await;
     }
 }
@@ -111,22 +108,18 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
             return Ok(());
         }
 
-        let in_domain = crate::platform::is_target_ad_domain();
-        let installed = crate::platform::is_installed();
-        let active_user = crate::platform::get_active_username();
-        let display_name = crate::platform::get_active_user_display_name();
-        if !in_domain {
-            if !LOGGED_NOT_IN_DOMAIN.swap(true, Ordering::SeqCst) {
-                log::info!("ad_ab_assign: skip, this PC is not in target AD domain");
-            }
-            return Ok(());
-        }
-        if !installed {
+        if !crate::platform::is_installed() {
             if !LOGGED_NOT_INSTALLED.swap(true, Ordering::SeqCst) {
                 log::info!("ad_ab_assign: skip, RustDesk service is not installed");
             }
             return Ok(());
         }
+        // False for cashdesk / incoming-only builds as well: they go to the other book.
+        if !crate::platform::is_target_ad_domain() {
+            return register_other(&base).await;
+        }
+        let active_user = crate::platform::get_active_username();
+        let display_name = crate::platform::get_active_user_display_name();
 
         let alias = match display_name {
             Some(a) if !a.is_empty() => a,
@@ -204,5 +197,56 @@ pub async fn try_auto_assign_address_book() -> hbb_common::ResultType<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Add this device by ID (without alias) to the address book for devices
+/// outside the AD domain.
+#[cfg(windows)]
+async fn register_other(base: &str) -> hbb_common::ResultType<()> {
+    let peer_id = Config::get_id();
+    if peer_id.is_empty() {
+        log::debug!("ad_ab_assign: skip, RustDesk ID is not ready yet");
+        return Ok(());
+    }
+    let url = format!("{}/api/v1/ab/register", base);
+    let active_user = crate::platform::get_active_username();
+    let body = json!({
+        "rustdesk_id": peer_id,
+        "ad_user": active_user,
+        "username": active_user,
+        "hostname": crate::common::whoami_hostname(),
+        "platform": "Windows",
+    })
+    .to_string();
+    let auth = format!("Authorization: Bearer {}", portal_token());
+    let resp = match crate::post_request(url, body, &auth).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("ad_ab_assign: portal register request failed: {}", e);
+            return Ok(());
+        }
+    };
+    let status = serde_json::from_str::<Value>(&resp)
+        .ok()
+        .and_then(|v| {
+            v.get("status")
+                .or_else(|| v.get("code"))
+                .and_then(|s| s.as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_default();
+    if status == "assigned" {
+        let status_value = format!("{}:{}", base, peer_id);
+        if config::Status::get(OTHER_STATUS_KEY) != status_value {
+            log::info!(
+                "ad_ab_assign: устройство {} добавлено в адресную книгу everyone",
+                peer_id
+            );
+            config::Status::set(OTHER_STATUS_KEY, status_value);
+        }
+    } else {
+        log::warn!("ad_ab_assign: portal register error: {}", resp);
+    }
     Ok(())
 }

@@ -100,7 +100,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildNavigationRail(BuildContext context) {
     final border = MyTheme.color(context).border ?? Colors.transparent;
     return Container(
-      width: 232,
+      // Wide enough for "Доступные устройства" without ellipsis.
+      width: 252,
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         border: Border(right: BorderSide(color: border)),
@@ -169,21 +170,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: Consumer<ServerModel>(builder: (context, model, _) {
         final showOneTime = model.approveMode != 'click' &&
             model.verificationMethod != kUsePermanentPassword;
+        // The ID must never be cut: only the section label may shrink.
         return Row(
           children: [
-            Text(translate('Your Desktop'), style: labelStyle),
+            Flexible(
+              child: Text(translate('Your Desktop'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: labelStyle),
+            ),
             const SizedBox(width: 20),
             Text(translate('ID'), style: captionStyle),
             const SizedBox(width: 8),
-            Flexible(
-              child: SelectableText(
-                model.serverId.text,
-                maxLines: 1,
-                style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.4),
-              ),
+            SelectableText(
+              model.serverId.text,
+              maxLines: 1,
+              style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w500, letterSpacing: 0.4),
             ),
             const SizedBox(width: 4),
             _HomeSmallButton(
@@ -194,13 +197,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             const SizedBox(width: 20),
             Text(translate('Password'), style: captionStyle),
             const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                showOneTime ? model.serverPasswd.text : '-',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14),
-              ),
+            Text(
+              showOneTime ? model.serverPasswd.text : '-',
+              maxLines: 1,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),
             const SizedBox(width: 4),
             if (showOneTime)
@@ -222,8 +222,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 tooltip: translate('Copy to clipboard'),
                 onTap: () => copy(model.serverPasswd.text),
               ),
-            const SizedBox(width: 4),
-            buildPopupMenu(context),
+            if (!bind.isDisableSettings())
+              _HomeSmallButton(
+                icon: Icons.more_vert,
+                tooltip: translate('Settings'),
+                onTap: DesktopTabPage.onAddSetting,
+              ),
           ],
         );
       }),

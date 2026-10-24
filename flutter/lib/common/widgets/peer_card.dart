@@ -238,7 +238,8 @@ class _PeerCardState extends State<_PeerCard>
                 ),
                 isPortrait
                     ? checkBoxOrActionMorePortrait(peer)
-                    : checkBoxOrActionMoreLandscape(peer, isTile: true),
+                    : checkBoxOrActionMoreLandscape(peer, isTile: true)
+                        .marginOnly(right: 6),
               ],
             ).paddingOnly(left: 10.0, top: 3.0),
           ),
@@ -270,9 +271,10 @@ class _PeerCardState extends State<_PeerCard>
                 ),
         ),
         if (colors.isNotEmpty)
+          // Tag dots sit left of the ⋮ button instead of over the corner.
           Obx(() => Positioned(
-                top: 2,
-                right: stateGlobal.isPortrait.isTrue ? 20 : 10,
+                top: 5,
+                right: stateGlobal.isPortrait.isTrue ? 20 : 42,
                 child: CustomPaint(
                   painter: TagPainter(radius: 3, colors: colors),
                 ),

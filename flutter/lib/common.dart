@@ -490,6 +490,8 @@ class MyTheme {
     brightness: Brightness.dark,
     fontFamily: fontFamily,
     hoverColor: surfaceContainerHighDark,
+    // Material 2 default (#424242) is used by dropdown menus; keep them in palette.
+    canvasColor: surfaceContainerHighDark,
     scaffoldBackgroundColor: surfaceDark,
     dialogBackgroundColor: surfaceContainerDark,
     appBarTheme: AppBarTheme(
@@ -3800,13 +3802,14 @@ class ComboBox extends StatelessWidget {
               : MyTheme.border,
         ),
         borderRadius:
-            BorderRadius.circular(8), //border raiuds of dropdown button
+            BorderRadius.circular(12), //border raiuds of dropdown button
       ),
       height: 42, // should be the height of a TextField
       child: Obx(() => DropdownButton<String>(
             isExpanded: true,
             value: ref.value,
             elevation: 16,
+            borderRadius: BorderRadius.circular(12),
             underline: Container(),
             style: TextStyle(
                 color: enabled

@@ -84,7 +84,9 @@ class _AddressBookState extends State<AddressBook> {
               decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: Theme.of(context).colorScheme.background)),
+                      color: MyTheme.color(context).border ??
+                          Theme.of(context).colorScheme.background)),
+              padding: const EdgeInsets.all(6),
               child: Container(
                 width: 200,
                 height: double.infinity,
@@ -245,20 +247,43 @@ class _AddressBookState extends State<AddressBook> {
                 bind.setLocalFlutterOption(k: kOptionCurrentAbName, v: value);
               }
             },
+      // Portal style: filled rounded selector, rounded menu in the palette.
       customButton: Obx(() => Container(
-            height: stateGlobal.isPortrait.isFalse ? 48 : 40,
+            height: 40,
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.only(left: 12, right: 6),
+            decoration: homeIconButtonDecoration(context),
             child: Row(children: [
               Expanded(
-                  child:
-                      buildItem(gFFI.abModel.currentName.value, button: true)),
-              Icon(Icons.arrow_drop_down),
+                  child: DefaultTextStyle.merge(
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      child: buildItem(gFFI.abModel.currentName.value))),
+              const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
             ]),
           )),
-      underline: Container(
-        height: 0.7,
-        color: Theme.of(context).dividerColor.withOpacity(0.1),
+      underline: const SizedBox.shrink(),
+      dropdownStyleData: DropdownStyleData(
+        maxHeight: 420,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: Theme.of(context).hoverColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: MyTheme.color(context).border ?? Colors.transparent),
+        ),
       ),
-      menuItemStyleData: menuItemStyleData,
+      menuItemStyleData: MenuItemStyleData(
+        height: menuItemStyleData.height,
+        customHeights: menuItemStyleData.customHeights,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        selectedMenuItemBuilder: (context, child) => Container(
+          decoration: BoxDecoration(
+            color: MyTheme.tabbar(context).selectedTabBackgroundColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: child,
+        ),
+      ),
       items: items,
       isExpanded: true,
       isDense: true,
@@ -280,13 +305,16 @@ class _AddressBookState extends State<AddressBook> {
             decoration: InputDecoration(
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
+                horizontal: 14,
                 vertical: 8,
               ),
+              prefixIcon: const Icon(Icons.search_rounded, size: 18),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 36, minHeight: 20),
               hintText: translate('Search'),
-              hintStyle: const TextStyle(fontSize: 12),
+              hintStyle: const TextStyle(fontSize: 13),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(999),
               ),
             ),
           ).workaroundFreezeLinuxMint(),
@@ -786,14 +814,15 @@ class AddressBookTag extends StatelessWidget {
       onSecondaryTapDown: showAction ? setPosition : null,
       onSecondaryTap: showAction ? () => _showMenu(context, pos) : null,
       onLongPress: showAction ? () => _showMenu(context, pos) : null,
+      // Pill chips: visible resting fill, the tag colour when selected.
       child: Obx(() => Container(
             decoration: BoxDecoration(
                 color: tags.contains(name)
                     ? gFFI.abModel.getCurrentAbTagColor(name)
-                    : Theme.of(context).colorScheme.background,
-                borderRadius: BorderRadius.circular(4)),
-            margin: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
-            padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 6.0),
+                    : Theme.of(context).hoverColor,
+                borderRadius: BorderRadius.circular(999)),
+            margin: const EdgeInsets.symmetric(horizontal: 3.0, vertical: 3.0),
+            padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 10.0),
             child: IntrinsicWidth(
               child: Row(
                 children: [

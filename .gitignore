@@ -61,3 +61,6 @@ flutter/web/
 # Артефакты сборки внутри: см. libs/hbb_common/.gitignore (target и т.д.)
 scripts/github-push-setup.sh
 scripts/push-master.sh
+
+# Superdesign working files
+.superdesign/

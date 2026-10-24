@@ -361,7 +361,6 @@ class _ConnectionPageState extends State<ConnectionPage>
   }
 
   Widget _buildHomeLayout(BuildContext context, bool isOutgoingOnly) {
-    final sideCard = widget.sideCard;
     return Column(
       children: [
         Expanded(
@@ -370,24 +369,14 @@ class _ConnectionPageState extends State<ConnectionPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
-                  crossAxisAlignment: WrapCrossAlignment.start,
-                  children: [
-                    homeSurfaceCard(
-                      context,
-                      padding: EdgeInsets.zero,
-                      child: _buildRemoteIDTextField(context),
-                    ),
-                    if (sideCard != null) sideCard,
-                  ],
-                ),
+                // One slim strip: connect on the left, this desktop on the
+                // right, so the address book gets most of the height.
+                _buildRemoteIDTextField(context),
                 const SizedBox(height: 16),
                 Expanded(
                   child: homeSurfaceCard(
                     context,
-                    padding: const EdgeInsets.fromLTRB(16, 14, 4, 8),
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
                     child: PeerTabPage(showSwitchBar: false),
                   ),
                 ),
@@ -398,6 +387,47 @@ class _ConnectionPageState extends State<ConnectionPage>
         if (!isOutgoingOnly) const Divider(height: 1),
         if (!isOutgoingOnly) OnlineStatusWidget(),
       ],
+    );
+  }
+
+  /// "New connection" + "Your Desktop" in one ~76px card (home layout).
+  Widget _buildCompactConnect(
+      BuildContext context, Widget idField, Widget connectButtons) {
+    final labelStyle = TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        color:
+            Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.75));
+    final sideCard = widget.sideCard;
+    return homeSurfaceCard(
+      context,
+      radius: 16,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: SizedBox(
+        height: 48,
+        child: Row(
+          children: [
+            Tooltip(
+              waitDuration: const Duration(milliseconds: 300),
+              message: translate('id_input_tip'),
+              child: Text(translate('New Connection'), style: labelStyle),
+            ),
+            const SizedBox(width: 16),
+            SizedBox(width: 200, child: idField),
+            const SizedBox(width: 8),
+            connectButtons,
+            if (sideCard != null) ...[
+              Container(
+                width: 1,
+                height: 40,
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                color: MyTheme.color(context).border,
+              ),
+              Expanded(child: sideCard),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -426,28 +456,7 @@ class _ConnectionPageState extends State<ConnectionPage>
         ? Theme.of(context).scaffoldBackgroundColor.withOpacity(
             Theme.of(context).brightness == Brightness.dark ? 0.32 : 0.50)
         : null;
-    var w = Container(
-      width: fieldWidth + horizontalPadding * 2,
-      padding: EdgeInsets.fromLTRB(horizontalPadding, verticalTopPadding,
-          horizontalPadding, verticalBottomPadding),
-      // In the home layout the surrounding home card draws the frame.
-      decoration: widget.homeLayout
-          ? null
-          : BoxDecoration(
-          color: cardFillColor,
-          borderRadius: BorderRadius.all(
-              Radius.circular(isCompactCashdesk ? 16 : 13)),
-          border: Border.all(
-              color: Theme.of(context)
-                  .colorScheme
-                  .background
-                  .withOpacity(isCompactCashdesk ? 0.4 : 1))),
-      child: Ink(
-        child: Column(
-          children: [
-            getConnectionPageTitle(context, false)
-                .marginOnly(bottom: isCompactCashdesk ? 12 : 15),
-            Row(
+    final idField = Row(
               children: [
                 Expanded(
                     child: RawAutocomplete<Peer>(
@@ -513,22 +522,24 @@ class _ConnectionPageState extends State<ConnectionPage>
                           enableSuggestions: false,
                           keyboardType: TextInputType.visiblePassword,
                           focusNode: fieldFocusNode,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'WorkSans',
-                            fontSize: 22,
+                            fontSize: widget.homeLayout ? 16 : 22,
                             height: 1.4,
                           ),
                           maxLines: 1,
                           cursorColor:
                               Theme.of(context).textTheme.titleLarge?.color,
                           decoration: InputDecoration(
-                              filled: false,
+                              // Compact home strip: outlined filled field.
+                              filled: widget.homeLayout,
                               counterText: '',
                               hintText: _idInputFocused.value
                                   ? null
                                   : translate('Enter Remote ID'),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 15, vertical: 11)),
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: widget.homeLayout ? 12 : 15,
+                                  vertical: widget.homeLayout ? 9 : 11)),
                           controller: fieldTextEditingController,
                           inputFormatters: [IDTextInputFormatter()],
                           onChanged: (v) {
@@ -608,12 +619,10 @@ class _ConnectionPageState extends State<ConnectionPage>
                   },
                 )),
               ],
-            ),
-            Padding(
-              padding: EdgeInsets.only(top: isCompactCashdesk ? 10.0 : 13.0),
-              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            );
+    final connectButtons = Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 SizedBox(
-                  height: 28.0,
+                  height: widget.homeLayout ? 40.0 : 28.0,
                   child: ElevatedButton(
                     onPressed: () {
                       onConnect();
@@ -623,12 +632,15 @@ class _ConnectionPageState extends State<ConnectionPage>
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  height: 28.0,
-                  width: 28.0,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  height: widget.homeLayout ? 40.0 : 28.0,
+                  width: widget.homeLayout ? 40.0 : 28.0,
+                  decoration: widget.homeLayout
+                      ? homeIconButtonDecoration(context, radius: 999)
+                      : BoxDecoration(
+                          border:
+                              Border.all(color: Theme.of(context).dividerColor),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                   child: Center(
                     child: StatefulBuilder(
                       builder: (context, setState) {
@@ -700,7 +712,35 @@ class _ConnectionPageState extends State<ConnectionPage>
                     ),
                   ),
                 ),
-              ]),
+              ]);
+    if (widget.homeLayout) {
+      return _buildCompactConnect(context, idField, connectButtons);
+    }
+    var w = Container(
+      width: fieldWidth + horizontalPadding * 2,
+      padding: EdgeInsets.fromLTRB(horizontalPadding, verticalTopPadding,
+          horizontalPadding, verticalBottomPadding),
+      // In the home layout the surrounding home card draws the frame.
+      decoration: widget.homeLayout
+          ? null
+          : BoxDecoration(
+          color: cardFillColor,
+          borderRadius: BorderRadius.all(
+              Radius.circular(isCompactCashdesk ? 16 : 13)),
+          border: Border.all(
+              color: Theme.of(context)
+                  .colorScheme
+                  .background
+                  .withOpacity(isCompactCashdesk ? 0.4 : 1))),
+      child: Ink(
+        child: Column(
+          children: [
+            getConnectionPageTitle(context, false)
+                .marginOnly(bottom: isCompactCashdesk ? 12 : 15),
+            idField,
+            Padding(
+              padding: EdgeInsets.only(top: isCompactCashdesk ? 10.0 : 13.0),
+              child: connectButtons,
             ),
           ],
         ),

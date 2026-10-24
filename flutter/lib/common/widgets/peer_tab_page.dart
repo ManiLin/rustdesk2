@@ -698,7 +698,6 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
         : _hoverAction(
             context: context,
             toolTip: translate('Search'),
-            padding: const EdgeInsets.only(right: 2),
             onTap: () {
               setState(() {
                 drawer = true;
@@ -706,7 +705,8 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
             },
             child: Icon(
               Icons.search_rounded,
-              color: Theme.of(context).hintColor,
+              size: 18,
+              color: Theme.of(context).textTheme.titleLarge?.color,
             ));
   }
 
@@ -720,10 +720,17 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
           extentOffset: peerSearchTextController.value.text.length);
     });
     return Obx(() => Container(
-          width: stateGlobal.isPortrait.isTrue ? 120 : 140,
+          width: stateGlobal.isPortrait.isTrue ? 120 : 220,
+          height: 34,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.background,
-            borderRadius: BorderRadius.circular(6),
+            color: Theme.of(context).inputDecorationTheme.fillColor ??
+                Theme.of(context).colorScheme.background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+                color: focused.value
+                    ? Theme.of(context).colorScheme.primary
+                    : (MyTheme.color(context).border ?? Colors.transparent)),
           ),
           child: Row(
             children: [
@@ -753,6 +760,7 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                         cursorWidth: 1,
                         style: const TextStyle(fontSize: 14),
                         decoration: InputDecoration(
+                          filled: false,
                           contentPadding:
                               const EdgeInsets.symmetric(vertical: 6),
                           hintText:
@@ -990,36 +998,36 @@ class RefreshWidgetState extends State<RefreshWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final deco = BoxDecoration(
-      color: Theme.of(context).colorScheme.background,
-      borderRadius: BorderRadius.circular(6),
+    // Only the icon spins; the visible button frame stays still.
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 3),
+      decoration: homeIconButtonDecoration(context, hover: hover),
+      child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            if (mounted) setState(() => turns += 1.0);
+            widget.onPressed();
+          },
+          onHover: (value) {
+            if (mounted) {
+              setState(() {
+                hover = value;
+              });
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(7.0),
+            child: AnimatedRotation(
+                turns: turns,
+                duration: const Duration(milliseconds: 200),
+                onEnd: () {
+                  if (widget.spinning?.value == true && mounted) {
+                    setState(() => turns += 1.0);
+                  }
+                },
+                child: widget.child),
+          )),
     );
-    return AnimatedRotation(
-        turns: turns,
-        duration: const Duration(milliseconds: 200),
-        onEnd: () {
-          if (widget.spinning?.value == true && mounted) {
-            setState(() => turns += 1.0);
-          }
-        },
-        child: Container(
-          padding: EdgeInsets.all(4.0),
-          margin: EdgeInsets.symmetric(horizontal: 1),
-          decoration: hover ? deco : null,
-          child: InkWell(
-              onTap: () {
-                if (mounted) setState(() => turns += 1.0);
-                widget.onPressed();
-              },
-              onHover: (value) {
-                if (mounted) {
-                  setState(() {
-                    hover = value;
-                  });
-                }
-              },
-              child: widget.child),
-        ));
   }
 }
 
@@ -1030,25 +1038,31 @@ Widget _hoverAction(
     required String toolTip,
     GestureTapDownCallback? onTapDown,
     RxBool? hoverableWhenfalse,
-    EdgeInsetsGeometry padding = const EdgeInsets.all(4.0)}) {
+    EdgeInsetsGeometry padding = const EdgeInsets.all(7.0)}) {
   final hover = false.obs;
-  final deco = BoxDecoration(
-    color: Theme.of(context).colorScheme.background,
-    borderRadius: BorderRadius.circular(6),
-  );
   return Tooltip(
     message: toolTip,
-    child: Obx(
-      () => Container(
-          margin: EdgeInsets.symmetric(horizontal: 1),
-          decoration:
-              (hover.value || hoverableWhenfalse?.value == false) ? deco : null,
+    child: Obx(() {
+      // `hoverableWhenfalse == false` marks an active toggle (e.g. tags panel shown).
+      final active = hoverableWhenfalse?.value == false;
+      return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          decoration: homeIconButtonDecoration(context,
+              hover: hover.value, active: active),
           child: InkWell(
+              borderRadius: BorderRadius.circular(10),
               onHover: (value) => hover.value = value,
               onTap: onTap,
               onTapDown: onTapDown,
-              child: Container(padding: padding, child: child))),
-    ),
+              child: Container(
+                  padding: padding,
+                  child: active
+                      ? IconTheme.merge(
+                          data: IconThemeData(
+                              color: Theme.of(context).colorScheme.primary),
+                          child: child)
+                      : child)));
+    }),
   );
 }
 

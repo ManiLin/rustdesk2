@@ -23,7 +23,6 @@ import '../../utils/multi_window_manager.dart';
 
 const double _kTabBarHeight = kDesktopRemoteTabBarHeight;
 const double _kIconSize = 18;
-const double _kDividerIndent = 10;
 const double _kActionIconSize = 12;
 
 class TabInfo {
@@ -1142,8 +1141,6 @@ class _TabState extends State<_Tab> with RestorationMixin {
   @override
   Widget build(BuildContext context) {
     bool isSelected = widget.index == widget.selected;
-    bool showDivider =
-        widget.index != widget.selected - 1 && widget.index != widget.selected;
     RxBool hover = restoreHover.value.obs;
     return Ink(
       child: InkWell(
@@ -1152,50 +1149,41 @@ class _TabState extends State<_Tab> with RestorationMixin {
           restoreHover.value = value;
         },
         onTap: () => widget.onTap(),
-        child: Container(
-            decoration: isSelected && widget.selectedBorderColor != null
-                ? BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: widget.selectedBorderColor!,
-                        width: 1,
-                      ),
-                    ),
-                  )
-                : null,
-            child: Container(
-              color: isSelected
-                  ? widget.selectedTabBackgroundColor
-                  : widget.unSelectedTabBackgroundColor,
-              child: Row(
-                children: [
-                  SizedBox(
-                      // _kTabBarHeight also displays normally
-                      height: _showTabBarBottomDivider(widget.tabType)
-                          ? _kTabBarHeight - 1
-                          : _kTabBarHeight,
-                      child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            _buildTabContent(),
-                            Obx((() => _CloseButton(
-                                  visible: hover.value && widget.closable,
-                                  tabSelected: isSelected,
-                                  onClose: () => widget.onClose(),
-                                )))
-                          ])).paddingOnly(left: 10, right: 5),
-                  Offstage(
-                    offstage: !showDivider,
-                    child: VerticalDivider(
-                      width: 1,
-                      indent: _kDividerIndent,
-                      endIndent: _kDividerIndent,
-                      color: MyTheme.tabbar(context).dividerColor,
-                    ),
-                  )
-                ],
-              ),
-            )),
+        // Rounded tab (portal style): the selected one is a filled pill with
+        // an outline, the others get a rounded hover background.
+        child: SizedBox(
+          height: _showTabBarBottomDivider(widget.tabType)
+              ? _kTabBarHeight - 1
+              : _kTabBarHeight,
+          child: Obx(() => AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+                padding: const EdgeInsets.only(left: 10, right: 5),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? widget.selectedTabBackgroundColor
+                      : (hover.value
+                          ? Theme.of(context).hoverColor
+                          : widget.unSelectedTabBackgroundColor),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: isSelected
+                          ? (MyTheme.color(context).border ??
+                              Colors.transparent)
+                          : Colors.transparent),
+                ),
+                child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildTabContent(),
+                      _CloseButton(
+                        visible: hover.value && widget.closable,
+                        tabSelected: isSelected,
+                        onClose: () => widget.onClose(),
+                      )
+                    ]),
+              )),
+        ),
       ),
     );
   }

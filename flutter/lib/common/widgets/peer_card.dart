@@ -48,8 +48,8 @@ class _PeerCard extends StatefulWidget {
 class _PeerCardState extends State<_PeerCard>
     with AutomaticKeepAliveClientMixin {
   var _menuPos = RelativeRect.fill;
-  final double _cardRadius = 16;
-  final double _tileRadius = 5;
+  final double _cardRadius = 12;
+  final double _tileRadius = 10;
   final double _borderWidth = 2;
 
   @override
@@ -94,9 +94,11 @@ class _PeerCardState extends State<_PeerCard>
 
   Widget _buildLandscape() {
     final peer = super.widget.peer;
+    // Resting outline keeps cards distinguishable from the list background.
+    final restingBorder = MyTheme.color(context).border ?? Colors.transparent;
     var deco = Rx<BoxDecoration?>(
       BoxDecoration(
-        border: Border.all(color: Colors.transparent, width: _borderWidth),
+        border: Border.all(color: restingBorder, width: 1),
         borderRadius: BorderRadius.circular(
           peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
         ),
@@ -115,7 +117,7 @@ class _PeerCardState extends State<_PeerCard>
       },
       onExit: (evt) {
         deco.value = BoxDecoration(
-          border: Border.all(color: Colors.transparent, width: _borderWidth),
+          border: Border.all(color: restingBorder, width: 1),
           borderRadius: BorderRadius.circular(
             peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
           ),
@@ -1482,21 +1484,19 @@ Widget getOnline(double rightPadding, bool online) {
               radius: 3, backgroundColor: online ? Colors.green : kColorWarn)));
 }
 
+/// The ⋮ menu button of peer cards: a visible rounded button (filled,
+/// outlined) instead of an icon that blends into the card.
 Widget build_more(BuildContext context, {bool invert = false}) {
   final RxBool hover = false.obs;
   return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(8),
       onTap: () {},
       onHover: (value) => hover.value = value,
-      child: Obx(() => CircleAvatar(
-          radius: 14,
-          backgroundColor: hover.value
-              ? (invert
-                  ? Theme.of(context).colorScheme.background
-                  : Theme.of(context).scaffoldBackgroundColor)
-              : (invert
-                  ? Theme.of(context).scaffoldBackgroundColor
-                  : Theme.of(context).colorScheme.background),
+      child: Obx(() => Container(
+          width: 28,
+          height: 28,
+          decoration:
+              homeIconButtonDecoration(context, hover: hover.value, radius: 8),
           child: Icon(Icons.more_vert,
               size: 18,
               color: hover.value
@@ -1505,7 +1505,7 @@ Widget build_more(BuildContext context, {bool invert = false}) {
                       .textTheme
                       .titleLarge
                       ?.color
-                      ?.withOpacity(0.5)))));
+                      ?.withOpacity(0.75)))));
 }
 
 class TagPainter extends CustomPainter {

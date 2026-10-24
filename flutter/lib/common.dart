@@ -3946,12 +3946,14 @@ Widget loadCashdeskLogo() {
 /// Card of the portal-style home page: radius 20, `surface-container-low`,
 /// thin outline and a soft shadow.
 Widget homeSurfaceCard(BuildContext context,
-    {required Widget child, EdgeInsets padding = const EdgeInsets.all(20)}) {
+    {required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(20),
+    double radius = 20}) {
   return Container(
     padding: padding,
     decoration: BoxDecoration(
       color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(radius),
       border: Border.all(
           color: MyTheme.color(context).border ?? Colors.transparent),
       boxShadow: const [
@@ -3960,6 +3962,27 @@ Widget homeSurfaceCard(BuildContext context,
     ),
     clipBehavior: Clip.antiAlias,
     child: child,
+  );
+}
+
+/// Icon buttons of the portal-style home must stay visible at rest:
+/// `surface-container-high` fill with an `outline-variant` border, a lighter
+/// fill on hover, `secondary-container` when [active].
+BoxDecoration homeIconButtonDecoration(BuildContext context,
+    {bool hover = false, bool active = false, double radius = 10}) {
+  final theme = Theme.of(context);
+  final base = active
+      ? (MyTheme.tabbar(context).selectedTabBackgroundColor ?? theme.hoverColor)
+      : theme.hoverColor;
+  final overlay = (theme.brightness == Brightness.dark
+          ? Colors.white
+          : Colors.black)
+      .withOpacity(0.08);
+  return BoxDecoration(
+    color: hover ? Color.alphaBlend(overlay, base) : base,
+    borderRadius: BorderRadius.circular(radius),
+    border:
+        Border.all(color: MyTheme.color(context).border ?? Colors.transparent),
   );
 }
 

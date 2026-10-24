@@ -149,37 +149,84 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  /// "Your Desktop" card: this device's ID and password.
+  /// "Your Desktop" part of the home strip: this device's ID and password
+  /// in one line with visible copy / refresh / edit buttons.
   Widget _buildDesktopCard(BuildContext context) {
-    final supportingColor =
-        Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.65);
-    return homeSurfaceCard(
-      context,
-      padding: const EdgeInsets.fromLTRB(0, 20, 8, 12),
-      child: SizedBox(
-        width: 320,
-        child: ChangeNotifierProvider.value(
-          value: gFFI.serverModel,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              buildPresetPasswordWarning(),
-              Text(
-                translate('Your Desktop'),
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
-              ).paddingSymmetric(horizontal: 20),
-              Text(
-                translate('desk_tip'),
-                style: TextStyle(fontSize: 13, color: supportingColor),
-              ).paddingOnly(left: 20, top: 6, right: 20, bottom: 10),
-              buildIDBoard(context),
-              buildPasswordBoard(context),
-            ],
-          ),
-        ),
-      ),
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final labelStyle = TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        color: textColor?.withOpacity(0.75));
+    final captionStyle =
+        TextStyle(fontSize: 12, color: textColor?.withOpacity(0.65));
+    void copy(String text) {
+      Clipboard.setData(ClipboardData(text: text));
+      showToast(translate("Copied"));
+    }
+
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(builder: (context, model, _) {
+        final showOneTime = model.approveMode != 'click' &&
+            model.verificationMethod != kUsePermanentPassword;
+        return Row(
+          children: [
+            Text(translate('Your Desktop'), style: labelStyle),
+            const SizedBox(width: 20),
+            Text(translate('ID'), style: captionStyle),
+            const SizedBox(width: 8),
+            Flexible(
+              child: SelectableText(
+                model.serverId.text,
+                maxLines: 1,
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.4),
+              ),
+            ),
+            const SizedBox(width: 4),
+            _HomeSmallButton(
+              icon: Icons.copy_rounded,
+              tooltip: translate('Copy to clipboard'),
+              onTap: () => copy(model.serverId.text),
+            ),
+            const SizedBox(width: 20),
+            Text(translate('Password'), style: captionStyle),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                showOneTime ? model.serverPasswd.text : '-',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+            const SizedBox(width: 4),
+            if (showOneTime)
+              _HomeSmallButton(
+                icon: Icons.refresh_rounded,
+                tooltip: translate('Refresh Password'),
+                onTap: () => bind.mainUpdateTemporaryPassword(),
+              ),
+            if (!bind.isDisableSettings())
+              _HomeSmallButton(
+                icon: Icons.edit_outlined,
+                tooltip: translate('Change Password'),
+                onTap: () =>
+                    DesktopSettingPage.switch2page(SettingsTabKey.safety),
+              ),
+            if (showOneTime)
+              _HomeSmallButton(
+                icon: Icons.copy_rounded,
+                tooltip: translate('Copy to clipboard'),
+                onTap: () => copy(model.serverPasswd.text),
+              ),
+            const SizedBox(width: 4),
+            buildPopupMenu(context),
+          ],
+        );
+      }),
     );
   }
 
@@ -1408,6 +1455,48 @@ class _HomeNavItemState extends State<_HomeNavItem> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 28px icon button of the home strip (visible fill and outline).
+class _HomeSmallButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _HomeSmallButton(
+      {required this.icon, required this.tooltip, required this.onTap});
+
+  @override
+  State<_HomeSmallButton> createState() => _HomeSmallButtonState();
+}
+
+class _HomeSmallButtonState extends State<_HomeSmallButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Tooltip(
+        message: widget.tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: widget.onTap,
+          onHover: (v) => setState(() => _hover = v),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 28,
+            height: 28,
+            decoration:
+                homeIconButtonDecoration(context, hover: _hover, radius: 8),
+            child: Icon(widget.icon,
+                size: 16,
+                color: Theme.of(context).textTheme.titleLarge?.color),
           ),
         ),
       ),

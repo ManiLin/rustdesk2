@@ -57,6 +57,10 @@ async fn run_loop() {
         if let Err(e) = send_report(&url, &token).await {
             log::warn!("inventory report failed: {}", e);
         }
+        #[cfg(windows)]
+        if let Err(e) = wallpaper::sync(&url, &token).await {
+            log::warn!("inventory portal: wallpaper upload failed: {}", e);
+        }
         tokio::time::sleep(INTERVAL).await;
     }
 }
@@ -173,5 +177,73 @@ fn guess_local_ipv4() -> Option<String> {
     match s.local_addr().ok()?.ip() {
         std::net::IpAddr::V4(a) => Some(a.to_string()),
         _ => None,
+    }
+}
+
+/// Desktop wallpaper of the active user for peer cards. The portal makes the
+/// thumbnail; the device uploads the original only when it changes.
+#[cfg(windows)]
+mod wallpaper {
+    use hbb_common::{bail, config::Config, log, sha2::Digest, tokio, ResultType};
+    use std::sync::Mutex;
+
+    const MAX_UPLOAD_BYTES: usize = 24 * 1024 * 1024;
+
+    /// SHA-256 of the wallpaper the portal already has.
+    static LAST_SYNCED: Mutex<String> = Mutex::new(String::new());
+
+    fn portal_base(report_url: &str) -> String {
+        match report_url.find("/api/v1/report") {
+            Some(idx) => report_url[..idx].trim_end_matches('/').to_owned(),
+            None => report_url.trim_end_matches('/').to_owned(),
+        }
+    }
+
+    pub async fn sync(report_url: &str, token: &str) -> ResultType<()> {
+        let Some(path) = crate::platform::get_active_user_wallpaper_path() else {
+            return Ok(());
+        };
+        let data = tokio::fs::read(&path).await?;
+        if data.is_empty() || data.len() > MAX_UPLOAD_BYTES {
+            return Ok(());
+        }
+        let sha = hex::encode(hbb_common::sha2::Sha256::digest(&data));
+        if *LAST_SYNCED.lock().unwrap() == sha {
+            return Ok(());
+        }
+        let id = Config::get_id();
+        if id.is_empty() {
+            return Ok(());
+        }
+        let url = format!("{}/api/v1/devices/{}/wallpaper", portal_base(report_url), id);
+        let auth = format!("Bearer {}", token);
+        let client = crate::hbbs_http::create_http_client_async_with_url(&url).await;
+
+        let meta = client
+            .get(format!("{}/meta", url))
+            .header("Authorization", &auth)
+            .send()
+            .await?;
+        if meta.status().is_success() {
+            let meta: serde_json::Value = serde_json::from_str(&meta.text().await?)?;
+            if meta.get("sha256").and_then(|v| v.as_str()) == Some(sha.as_str()) {
+                *LAST_SYNCED.lock().unwrap() = sha;
+                return Ok(());
+            }
+        }
+
+        let resp = client
+            .post(&url)
+            .header("Authorization", &auth)
+            .header("Content-Type", "application/octet-stream")
+            .body(data)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            bail!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default());
+        }
+        log::info!("inventory portal: wallpaper uploaded (rustdesk_id={})", id);
+        *LAST_SYNCED.lock().unwrap() = sha;
+        Ok(())
     }
 }

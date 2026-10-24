@@ -89,6 +89,47 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /api/v1/devices/{id}/wallpaper:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Client]
+      summary: 480x270 JPEG thumbnail of the device desktop wallpaper (for peer cards)
+      security: [{ DeviceToken: [] }, { AdminJWT: [] }]
+      responses:
+        '200': { description: JPEG image, content: { image/jpeg: {} } }
+        '304': { description: Not modified (ETag) }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Client]
+      summary: Upload the original wallpaper image (JPEG/PNG/BMP/WebP, up to 25 MB); the portal makes the thumbnail
+      security: [{ DeviceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream: {}
+      responses:
+        '200': { description: Stored }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { description: Unsupported image }
+  /api/v1/devices/{id}/wallpaper/meta:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Client]
+      summary: SHA-256 of the last uploaded original, so devices upload only on change
+      security: [{ DeviceToken: [] }, { AdminJWT: [] }]
+      responses:
+        '200':
+          description: Wallpaper state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean }
+                  sha256: { type: string, nullable: true }
   /api/v1/auth/login:
     post:
       tags: [Admin]

@@ -14,6 +14,7 @@ import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 import '../../desktop/widgets/popup_menu.dart';
+import 'peer_wallpaper.dart';
 import 'dart:math' as math;
 
 typedef PopupMenuEntryBuilder = Future<List<mod_menu.PopupMenuEntry<String>>>
@@ -302,9 +303,15 @@ class _PeerCardState extends State<_PeerCard>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Expanded(
-                  child: Container(
-                    color: str2color('${peer.id}${peer.platform}', 0x7f),
-                    child: Row(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                    PeerWallpaper(
+                      peerId: peer.id,
+                      fallback: ColoredBox(
+                          color: str2color('${peer.id}${peer.platform}', 0x7f)),
+                    ),
+                    Row(
                       children: [
                         Expanded(
                           child: Column(
@@ -356,6 +363,7 @@ class _PeerCardState extends State<_PeerCard>
                         ),
                       ],
                     ),
+                    ],
                   ),
                 ),
                 Container(

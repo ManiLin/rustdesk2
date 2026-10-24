@@ -1365,6 +1365,169 @@ async fn devices_handler(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Desktop wallpapers: devices upload the original image, the portal stores a
+// small JPEG thumbnail that clients show on peer cards.
+// ---------------------------------------------------------------------------
+
+const WALLPAPER_MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
+const WALLPAPER_THUMB_WIDTH: u32 = 480;
+const WALLPAPER_THUMB_HEIGHT: u32 = 270;
+const WALLPAPER_JPEG_QUALITY: u8 = 82;
+
+/// RustDesk IDs are digits (custom IDs: letters, `-`, `_`); anything else is rejected
+/// so the ID can be used as a file name.
+fn wallpaper_peer_id(id: &str) -> Option<&str> {
+    let id = id.trim();
+    (!id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    .then_some(id)
+}
+
+fn wallpaper_paths(state: &AppState, id: &str) -> (PathBuf, PathBuf) {
+    let dir = state.uploads_dir.join("wallpapers");
+    (dir.join(format!("{id}.jpg")), dir.join(format!("{id}.sha256")))
+}
+
+/// Decode any supported image and make a cover-cropped 16:9 JPEG thumbnail.
+fn make_wallpaper_thumbnail(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let img = image::load_from_memory(data)?;
+    let thumb = img
+        .resize_to_fill(
+            WALLPAPER_THUMB_WIDTH,
+            WALLPAPER_THUMB_HEIGHT,
+            image::imageops::FilterType::Triangle,
+        )
+        .to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, WALLPAPER_JPEG_QUALITY)
+        .encode_image(&thumb)?;
+    Ok(out)
+}
+
+/// `POST /api/v1/devices/{id}/wallpaper` — raw image bytes from the device.
+async fn upload_wallpaper_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    AxumPath(id): AxumPath<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if !verify_device_token(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let Some(id) = wallpaper_peer_id(&id) else {
+        return (StatusCode::BAD_REQUEST, "bad rustdesk_id").into_response();
+    };
+    if body.is_empty() {
+        return (StatusCode::BAD_REQUEST, "empty image").into_response();
+    }
+    let source_sha = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&body))
+    };
+    let thumb = match tokio::task::spawn_blocking(move || make_wallpaper_thumbnail(&body)).await {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => {
+            tracing::warn!(peer = %id, "wallpaper decode failed: {}", e);
+            return (StatusCode::UNPROCESSABLE_ENTITY, "unsupported image").into_response();
+        }
+        Err(e) => {
+            tracing::error!("wallpaper task: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "processing error").into_response();
+        }
+    };
+    let (jpg_path, sha_path) = wallpaper_paths(&state, id);
+    let tmp_path = jpg_path.with_extension("jpg.tmp");
+    let write = async {
+        if let Some(dir) = jpg_path.parent() {
+            tokio::fs::create_dir_all(dir).await?;
+        }
+        tokio::fs::write(&tmp_path, &thumb).await?;
+        tokio::fs::rename(&tmp_path, &jpg_path).await?;
+        tokio::fs::write(&sha_path, &source_sha).await?;
+        Ok::<_, std::io::Error>(())
+    };
+    if let Err(e) = write.await {
+        tracing::error!(peer = %id, "wallpaper store failed: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response();
+    }
+    tracing::info!(peer = %id, bytes = thumb.len(), "wallpaper updated");
+    Json(serde_json::json!({ "ok": true, "sha256": source_sha })).into_response()
+}
+
+/// `GET /api/v1/devices/{id}/wallpaper/meta` — SHA-256 of the last uploaded original,
+/// so devices upload only when their wallpaper changes.
+async fn wallpaper_meta_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if !verify_device_or_admin(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let Some(id) = wallpaper_peer_id(&id) else {
+        return (StatusCode::BAD_REQUEST, "bad rustdesk_id").into_response();
+    };
+    let (jpg_path, sha_path) = wallpaper_paths(&state, id);
+    let sha = tokio::fs::read_to_string(&sha_path).await.unwrap_or_default();
+    let available = !sha.trim().is_empty()
+        && tokio::fs::try_exists(&jpg_path).await.unwrap_or(false);
+    Json(serde_json::json!({
+        "available": available,
+        "sha256": available.then(|| sha.trim().to_owned()),
+    }))
+    .into_response()
+}
+
+/// `GET /api/v1/devices/{id}/wallpaper` — JPEG thumbnail for peer cards.
+async fn get_wallpaper_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let auth = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if !verify_device_or_admin(&state, auth) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let Some(id) = wallpaper_peer_id(&id) else {
+        return (StatusCode::BAD_REQUEST, "bad rustdesk_id").into_response();
+    };
+    let (jpg_path, sha_path) = wallpaper_paths(&state, id);
+    let Ok(data) = tokio::fs::read(&jpg_path).await else {
+        return (StatusCode::NOT_FOUND, "no wallpaper").into_response();
+    };
+    let etag = format!(
+        "\"{}\"",
+        tokio::fs::read_to_string(&sha_path)
+            .await
+            .unwrap_or_default()
+            .trim()
+    );
+    if headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        == Some(etag.as_str())
+    {
+        return StatusCode::NOT_MODIFIED.into_response();
+    }
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "image/jpeg")
+        .header(CONTENT_LENGTH, data.len().to_string())
+        .header(axum::http::header::ETAG, etag)
+        .header("Cache-Control", "private, max-age=300")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(data))
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "wallpaper response error").into_response()
+        })
+}
+
 async fn delete_device_handler(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -1375,6 +1538,11 @@ async fn delete_device_handler(
         return admin_auth_error(&state, auth);
     }
     let trimmed_id = id.trim();
+    if let Some(wallpaper_id) = wallpaper_peer_id(trimmed_id) {
+        let (jpg_path, sha_path) = wallpaper_paths(&state, wallpaper_id);
+        let _ = tokio::fs::remove_file(jpg_path).await;
+        let _ = tokio::fs::remove_file(sha_path).await;
+    }
     let r = sqlx::query("DELETE FROM devices WHERE rustdesk_id = ?")
         .bind(trimmed_id)
         .execute(&state.pool)
@@ -2173,6 +2341,16 @@ fn build_app(state: Arc<AppState>, upload_body_limit: usize) -> Router {
         .route("/api/v1/report", post(report_handler))
         .route("/api/v1/ad/assign", post(ad_assign_handler))
         .route("/api/v1/ab/register", post(ab_register_handler))
+        .route(
+            "/api/v1/devices/{id}/wallpaper",
+            get(get_wallpaper_handler).post(
+                upload_wallpaper_handler.layer(DefaultBodyLimit::max(WALLPAPER_MAX_UPLOAD_BYTES)),
+            ),
+        )
+        .route(
+            "/api/v1/devices/{id}/wallpaper/meta",
+            get(wallpaper_meta_handler),
+        )
         .route("/api/v1/auth/login", post(login_handler))
         .route("/api/v1/devices", get(devices_handler))
         .route(
@@ -2430,7 +2608,7 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        admin_auth_error, build_app, duplicate_alias_rows, get_published_build, issue_jwt,
+        admin_auth_error, build_app, duplicate_alias_rows, make_wallpaper_thumbnail, wallpaper_peer_id, get_published_build, issue_jwt,
         migrate_build_artifact_columns, norm_architecture, norm_artifact_type, norm_flavor,
         norm_platform, normalize_public_base_url, normalize_server_host, AppState, Body, Request,
         SqlitePoolOptions, StatusCode, DEFAULT_PUBLIC_BASE_URL,
@@ -2496,6 +2674,27 @@ mod tests {
             .await
             .expect("response body");
         serde_json::from_slice(&body).expect("JSON response")
+    }
+
+    #[test]
+    fn wallpaper_thumbnail_is_16_9_jpeg() {
+        let img = image::RgbImage::from_pixel(1920, 1200, image::Rgb([70, 93, 145]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode png");
+        let thumb = make_wallpaper_thumbnail(&png).expect("thumbnail");
+        let decoded = image::load_from_memory(&thumb).expect("decode thumbnail");
+        assert_eq!((decoded.width(), decoded.height()), (480, 270));
+        assert_eq!(image::guess_format(&thumb).ok(), Some(image::ImageFormat::Jpeg));
+    }
+
+    #[test]
+    fn wallpaper_peer_id_rejects_paths() {
+        assert_eq!(wallpaper_peer_id(" 521448714 "), Some("521448714"));
+        assert_eq!(wallpaper_peer_id("../etc/passwd"), None);
+        assert_eq!(wallpaper_peer_id("1@server"), None);
+        assert_eq!(wallpaper_peer_id(""), None);
     }
 
     #[test]

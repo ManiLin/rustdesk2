@@ -169,13 +169,13 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   final Color? divider;
 
   static final light = ColorThemeExtension(
-    border: Color(0xFFCCCCCC),
-    border2: Color(0xFFBBBBBB),
+    border: Color(0xFFC4C6D0),
+    border2: Color(0xFF747782),
     border3: Colors.black26,
-    highlight: Color(0xFFE5E5E5),
+    highlight: Color(0xFFE7E8EF),
     drag_indicator: Colors.grey[800],
     shadow: Colors.black,
-    errorBannerBg: Color(0xFFFDEEEB),
+    errorBannerBg: Color(0xFFFFDAD6),
     me: Colors.green,
     toastBg: Colors.black.withOpacity(0.6),
     toastText: Colors.white,
@@ -183,13 +183,13 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   );
 
   static final dark = ColorThemeExtension(
-    border: Color(0xFF555555),
-    border2: Color(0xFFE5E5E5),
+    border: Color(0xFF44464F),
+    border2: Color(0xFF8E909A),
     border3: Colors.white24,
-    highlight: Color(0xFF3F3F3F),
+    highlight: Color(0xFF282A32),
     drag_indicator: Colors.grey,
     shadow: Colors.grey,
-    errorBannerBg: Color(0xFF470F2D),
+    errorBannerBg: Color(0xFF93000A),
     me: Colors.greenAccent,
     toastBg: Colors.white.withOpacity(0.6),
     toastText: Colors.black,
@@ -250,18 +250,32 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
 class MyTheme {
   MyTheme._();
 
-  static const Color grayBg = Color(0xFFEFEFF2);
-  static const Color accent = Color(0xFF0071FF);
-  static const Color accent50 = Color(0x770071FF);
-  static const Color accent80 = Color(0xAA0071FF);
+  // Palette of the TnursRemoteDesk web portal (Material 3 tokens).
+  static const Color grayBg = Color(0xFFEDECF4);
+  static const Color accent = Color(0xFF465D91);
+  static const Color accent50 = Color(0x77465D91);
+  static const Color accent80 = Color(0xAA465D91);
   static const Color canvasColor = Color(0xFF212121);
-  static const Color border = Color(0xFFCCCCCC);
+  static const Color border = Color(0xFFC4C6D0);
   static const Color idColor = Color(0xFF00B6F0);
   static const Color darkGray = Color.fromARGB(255, 148, 148, 148);
   static const Color cmIdColor = Color(0xFF21790B);
   static const Color dark = Colors.black87;
-  static const Color button = Color(0xFF2C8CFF);
-  static const Color hoverBorder = Color(0xFF999999);
+  static const Color button = Color(0xFF465D91);
+  static const Color hoverBorder = Color(0xFF747782);
+
+  static const String fontFamily = 'Inter';
+  static const Color primaryDark = Color(0xFFB1C5FF);
+  static const Color surfaceLight = Color(0xFFF9F9FF);
+  static const Color surfaceContainerLowLight = Color(0xFFF3F3FA);
+  static const Color surfaceContainerHighLight = Color(0xFFE7E8EF);
+  static const Color outlineVariantLight = Color(0xFFC4C6D0);
+  static const Color surfaceDark = Color(0xFF111318);
+  static const Color surfaceContainerLowestDark = Color(0xFF0C0E13);
+  static const Color surfaceContainerLowDark = Color(0xFF191B22);
+  static const Color surfaceContainerDark = Color(0xFF1D2027);
+  static const Color surfaceContainerHighDark = Color(0xFF282A32);
+  static const Color outlineVariantDark = Color(0xFF44464F);
 
   // ListTile
   static const ListTileThemeData listTileTheme = ListTileThemeData(
@@ -375,30 +389,32 @@ class MyTheme {
     // https://stackoverflow.com/questions/77537315/after-upgrading-to-flutter-3-16-the-app-bar-background-color-button-size-and
     useMaterial3: false,
     brightness: Brightness.light,
-    hoverColor: Color.fromARGB(255, 224, 224, 224),
-    scaffoldBackgroundColor: Colors.white,
-    dialogBackgroundColor: Colors.white,
+    fontFamily: fontFamily,
+    hoverColor: surfaceContainerHighLight,
+    scaffoldBackgroundColor: surfaceLight,
+    dialogBackgroundColor: surfaceContainerLowLight,
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
     dialogTheme: DialogTheme(
-      elevation: 15,
+      elevation: 12,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18.0),
+        borderRadius: BorderRadius.circular(28.0),
         side: BorderSide(
           width: 1,
-          color: grayBg,
+          color: outlineVariantLight,
         ),
       ),
     ),
     scrollbarTheme: scrollbarTheme,
     inputDecorationTheme: isDesktop
         ? InputDecorationTheme(
-            fillColor: grayBg,
+            fillColor: Colors.white,
             filled: true,
             isDense: true,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: outlineVariantLight),
             ),
           )
         : null,
@@ -409,7 +425,7 @@ class MyTheme {
         bodyMedium:
             TextStyle(fontSize: 14, color: Colors.black87, height: 1.25),
         labelLarge: TextStyle(fontSize: 16.0, color: MyTheme.accent80)),
-    cardColor: grayBg,
+    cardColor: surfaceContainerLowLight,
     hintColor: Color(0xFFAAAAAA),
     visualDensity: VisualDensity.adaptivePlatformDensity,
     tabBarTheme: const TabBarTheme(
@@ -423,27 +439,22 @@ class MyTheme {
         ? TextButtonThemeData(
             style: TextButton.styleFrom(
               splashFactory: NoSplash.splashFactory,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18.0),
-              ),
+              shape: const StadiumBorder(),
             ),
           )
         : mobileTextButtonTheme,
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: MyTheme.accent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
+        shape: const StadiumBorder(),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: grayBg,
-        foregroundColor: Colors.black87,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
+        backgroundColor: Colors.transparent,
+        foregroundColor: accent,
+        side: BorderSide(color: Color(0xFF747782)),
+        shape: const StadiumBorder(),
       ),
     ),
     switchTheme: switchTheme(),
@@ -451,18 +462,22 @@ class MyTheme {
     checkboxTheme: checkboxTheme,
     listTileTheme: listTileTheme,
     menuBarTheme: MenuBarThemeData(
-        style:
-            MenuStyle(backgroundColor: MaterialStatePropertyAll(Colors.white))),
+        style: MenuStyle(
+            backgroundColor: MaterialStatePropertyAll(surfaceContainerLowLight))),
     colorScheme: ColorScheme.light(
-        primary: Colors.blue, secondary: accent, background: grayBg),
+        primary: accent,
+        secondary: accent,
+        background: grayBg,
+        surface: surfaceLight,
+        error: Color(0xFFBA1A1A)),
     popupMenuTheme: PopupMenuThemeData(
-        color: Colors.white,
+        color: surfaceContainerLowLight,
         shape: RoundedRectangleBorder(
           side: BorderSide(
               color: (isDesktop || isWebDesktop)
-                  ? Color(0xFFECECEC)
+                  ? outlineVariantLight
                   : Colors.transparent),
-          borderRadius: BorderRadius.all(Radius.circular(8.0)),
+          borderRadius: BorderRadius.all(Radius.circular(12.0)),
         )),
   ).copyWith(
     extensions: <ThemeExtension<dynamic>>[
@@ -473,30 +488,32 @@ class MyTheme {
   static ThemeData darkTheme = ThemeData(
     useMaterial3: false,
     brightness: Brightness.dark,
-    hoverColor: Color.fromARGB(255, 45, 46, 53),
-    scaffoldBackgroundColor: Color(0xFF18191E),
-    dialogBackgroundColor: Color(0xFF18191E),
+    fontFamily: fontFamily,
+    hoverColor: surfaceContainerHighDark,
+    scaffoldBackgroundColor: surfaceDark,
+    dialogBackgroundColor: surfaceContainerDark,
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
     dialogTheme: DialogTheme(
-      elevation: 15,
+      elevation: 12,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18.0),
+        borderRadius: BorderRadius.circular(28.0),
         side: BorderSide(
           width: 1,
-          color: Color(0xFF24252B),
+          color: outlineVariantDark,
         ),
       ),
     ),
     scrollbarTheme: scrollbarThemeDark,
     inputDecorationTheme: (isDesktop || isWebDesktop)
         ? InputDecorationTheme(
-            fillColor: Color(0xFF24252B),
+            fillColor: surfaceContainerLowestDark,
             filled: true,
             isDense: true,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: outlineVariantDark),
             ),
           )
         : null,
@@ -511,7 +528,7 @@ class MyTheme {
         color: accent80,
       ),
     ),
-    cardColor: Color(0xFF24252B),
+    cardColor: surfaceContainerLowDark,
     visualDensity: VisualDensity.adaptivePlatformDensity,
     tabBarTheme: const TabBarTheme(
       labelColor: Colors.white70,
@@ -526,9 +543,7 @@ class MyTheme {
               splashFactory: NoSplash.splashFactory,
               disabledForegroundColor: Colors.white70,
               foregroundColor: Colors.white70,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18.0),
-              ),
+              shape: const StadiumBorder(),
             ),
           )
         : mobileTextButtonTheme,
@@ -538,20 +553,16 @@ class MyTheme {
         foregroundColor: Colors.white,
         disabledForegroundColor: Colors.white70,
         disabledBackgroundColor: Colors.white10,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
+        shape: const StadiumBorder(),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: Color(0xFF24252B),
-        side: BorderSide(color: Colors.white12, width: 0.5),
+        backgroundColor: Colors.transparent,
+        side: BorderSide(color: Color(0xFF8E909A)),
         disabledForegroundColor: Colors.white70,
-        foregroundColor: Colors.white70,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
+        foregroundColor: primaryDark,
+        shape: const StadiumBorder(),
       ),
     ),
     switchTheme: switchTheme(),
@@ -560,17 +571,20 @@ class MyTheme {
     listTileTheme: listTileTheme,
     menuBarTheme: MenuBarThemeData(
         style: MenuStyle(
-            backgroundColor: MaterialStatePropertyAll(Color(0xFF121212)))),
+            backgroundColor: MaterialStatePropertyAll(surfaceContainerLowDark))),
     colorScheme: ColorScheme.dark(
-      primary: Colors.blue,
-      secondary: accent,
-      background: Color(0xFF24252B),
+      primary: primaryDark,
+      secondary: primaryDark,
+      background: surfaceContainerDark,
+      surface: surfaceDark,
+      error: Color(0xFFFFB4AB),
     ),
     popupMenuTheme: PopupMenuThemeData(
+        color: surfaceContainerHighDark,
         shape: RoundedRectangleBorder(
-      side: BorderSide(color: Colors.white24),
-      borderRadius: BorderRadius.all(Radius.circular(8.0)),
-    )),
+          side: BorderSide(color: outlineVariantDark),
+          borderRadius: BorderRadius.all(Radius.circular(12.0)),
+        )),
   ).copyWith(
     extensions: <ThemeExtension<dynamic>>[
       ColorThemeExtension.dark,

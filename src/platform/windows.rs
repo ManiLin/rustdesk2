@@ -1205,6 +1205,36 @@ pub fn get_available_sessions(name: bool) -> Vec<WindowsSession> {
     v
 }
 
+#[link(name = "Userenv")]
+extern "system" {
+    fn GetUserProfileDirectoryW(hToken: HANDLE, lpProfileDir: *mut u16, lpcchSize: *mut DWORD) -> BOOL;
+}
+
+/// Profile directory of the user at the active session (e.g. `C:\Users\ivanov.CORP`).
+fn get_active_user_profile_dir() -> Option<PathBuf> {
+    let token = get_user_token(get_current_session_id(is_share_rdp()), true);
+    if token.is_null() {
+        return None;
+    }
+    let mut buf = vec![0u16; 1024];
+    let mut size = buf.len() as DWORD;
+    let ok = unsafe { GetUserProfileDirectoryW(token, buf.as_mut_ptr(), &mut size) };
+    unsafe { CloseHandle(token) };
+    if ok == FALSE {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    let dir = PathBuf::from(String::from_utf16_lossy(&buf[..len]));
+    dir.exists().then_some(dir)
+}
+
+/// The current desktop wallpaper of the active user, as cached by Explorer.
+pub fn get_active_user_wallpaper_path() -> Option<PathBuf> {
+    let home = get_active_user_profile_dir().or_else(get_active_user_home)?;
+    let path = home.join("AppData\\Roaming\\Microsoft\\Windows\\Themes\\TranscodedWallpaper");
+    path.is_file().then_some(path)
+}
+
 pub fn get_active_user_home() -> Option<PathBuf> {
     let username = get_active_username();
     if !username.is_empty() {

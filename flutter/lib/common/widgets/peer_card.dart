@@ -271,10 +271,10 @@ class _PeerCardState extends State<_PeerCard>
                 ),
         ),
         if (colors.isNotEmpty)
-          // Tag dots sit left of the ⋮ button instead of over the corner.
+          // Tag dots in the thumbnail corner, so they never cover the name.
           Obx(() => Positioned(
-                top: 5,
-                right: stateGlobal.isPortrait.isTrue ? 20 : 42,
+                bottom: stateGlobal.isPortrait.isTrue ? 8 : 10,
+                left: stateGlobal.isPortrait.isTrue ? 46 : 38,
                 child: CustomPaint(
                   painter: TagPainter(radius: 3, colors: colors),
                 ),

@@ -25,8 +25,8 @@ class DesktopTabPage extends StatefulWidget {
       tabController.add(TabInfo(
           key: kTabLabelSettingPage,
           label: kTabLabelSettingPage,
-          selectedIcon: Icons.build_sharp,
-          unselectedIcon: Icons.build_outlined,
+          selectedIcon: Icons.settings,
+          unselectedIcon: Icons.settings_outlined,
           page: DesktopSettingPage(
             key: const ValueKey(kTabLabelSettingPage),
             initialTabkey: initialPage,

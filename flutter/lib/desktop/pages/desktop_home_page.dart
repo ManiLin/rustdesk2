@@ -27,7 +27,6 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
-import '../widgets/button.dart';
 
 class DesktopHomePage extends StatefulWidget {
   const DesktopHomePage({Key? key}) : super(key: key);
@@ -170,19 +169,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: Consumer<ServerModel>(builder: (context, model, _) {
         final showOneTime = model.approveMode != 'click' &&
             model.verificationMethod != kUsePermanentPassword;
-        // The ID must never be cut: only the section label may shrink.
-        return Row(
+        // Caption above the values: the ID and the label are never cut.
+        final values = Row(
           children: [
-            Flexible(
-              child: Text(translate('Your Desktop'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: labelStyle),
-            ),
-            const SizedBox(width: 20),
             Text(translate('ID'), style: captionStyle),
             const SizedBox(width: 8),
-            SelectableText(
+            Text(
               model.serverId.text,
               maxLines: 1,
               style: const TextStyle(
@@ -228,6 +220,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 tooltip: translate('Settings'),
                 onTap: DesktopTabPage.onAddSetting,
               ),
+          ],
+        );
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(translate('Your Desktop'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: labelStyle.copyWith(fontSize: 12)),
+            const SizedBox(height: 2),
+            FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: values),
           ],
         );
       }),
@@ -836,35 +843,33 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
     }
 
+    // Portal style: tinted primary card instead of the pink gradient.
+    final primary = Theme.of(context).colorScheme.primary;
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
     return Stack(
       children: [
         Container(
           margin: EdgeInsets.fromLTRB(
-              0, marginTop, 0, bind.isIncomingOnly() ? marginTop : 0),
+              12, marginTop, 12, bind.isIncomingOnly() ? marginTop : 0),
           child: Container(
               decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color.fromARGB(255, 226, 66, 188),
-                  Color.fromARGB(255, 244, 114, 124),
-                ],
-              )),
-              padding: EdgeInsets.all(20),
+                color: primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: primary.withOpacity(0.35)),
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
               child: Column(
                   mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: (title.isNotEmpty
                           ? <Widget>[
-                              Center(
-                                  child: Text(
+                              Text(
                                 translate(title),
                                 style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15),
-                              ).marginOnly(bottom: 6)),
+                                    color: primary,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14),
+                              ).marginOnly(bottom: 6, right: 20),
                             ]
                           : <Widget>[]) +
                       <Widget>[
@@ -872,29 +877,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           Text(
                             translate(content),
                             style: TextStyle(
-                                height: 1.5,
-                                color: Colors.white,
-                                fontWeight: FontWeight.normal,
+                                height: 1.45,
+                                color: textColor?.withOpacity(0.85),
                                 fontSize: 13),
-                          ).marginOnly(bottom: 20)
+                          ).marginOnly(bottom: 14)
                       ] +
                       (btnText.isNotEmpty
                           ? <Widget>[
-                              Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    FixedWidthButton(
-                                      width: 150,
-                                      padding: 8,
-                                      isOutline: true,
-                                      text: translate(btnText),
-                                      textColor: Colors.white,
-                                      borderColor: Colors.white,
-                                      textSize: 20,
-                                      radius: 10,
-                                      onTap: onPressed,
-                                    )
-                                  ])
+                              ElevatedButton(
+                                onPressed: onPressed,
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(36),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                ),
+                                child: Text(
+                                  translate(btnText),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
                             ]
                           : <Widget>[]) +
                       (help != null
@@ -908,21 +911,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                         style: TextStyle(
                                             decoration:
                                                 TextDecoration.underline,
-                                            color: Colors.white,
+                                            color: primary,
                                             fontSize: 12),
-                                      )).marginOnly(top: 6)),
+                                      )).marginOnly(top: 8)),
                             ]
                           : <Widget>[]))),
         ),
         if (closeButton != null && closeButton == true)
           Positioned(
-            top: 18,
-            right: 0,
+            top: marginTop + 2,
+            right: 14,
             child: IconButton(
               icon: Icon(
                 Icons.close,
-                color: Colors.white,
-                size: 20,
+                color: textColor?.withOpacity(0.7),
+                size: 18,
               ),
               onPressed: closeCard,
             ),

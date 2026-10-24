@@ -105,6 +105,8 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
+              // Portal-style top bar: logo and app name.
+              showTitle: !(isCashdeskBuild || bind.isIncomingOnly()),
               tail: Offstage(
                 offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
                 child: ActionIcon(

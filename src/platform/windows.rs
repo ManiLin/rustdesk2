@@ -1582,6 +1582,37 @@ fn get_after_install(
     ", create_service=get_create_service(&exe))
 }
 
+/// `1.4.9-8` -> (`1`, `4`, `9`, `8`).
+fn version_parts() -> (String, String, String, String) {
+    let (base, revision) = crate::VERSION
+        .split_once('-')
+        .unwrap_or((crate::VERSION, "0"));
+    let mut parts = base.split('.').map(|p| {
+        let digits: String = p.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            "0".to_owned()
+        } else {
+            digits
+        }
+    });
+    let major = parts.next().unwrap_or_else(|| "0".to_owned());
+    let minor = parts.next().unwrap_or_else(|| "0".to_owned());
+    let build = parts.next().unwrap_or_else(|| "0".to_owned());
+    let revision: String = revision.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let revision = if revision.is_empty() {
+        "0".to_owned()
+    } else {
+        revision
+    };
+    (major, minor, build, revision)
+}
+
+/// Numeric `a.b.c.d` version (`1.4.9.8`) used for DisplayVersion and exe resources.
+pub fn numeric_version() -> String {
+    let (major, minor, build, revision) = version_parts();
+    format!("{major}.{minor}.{build}.{revision}")
+}
+
 pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> ResultType<()> {
     let uninstall_str = get_uninstall(false, false);
     let mut path = path.trim_end_matches('\\').to_owned();
@@ -1592,19 +1623,7 @@ pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> Res
     } else {
         exe = exe.replace(&_path, &path);
     }
-    let mut version_major = "0";
-    let mut version_minor = "0";
-    let mut version_build = "0";
-    let versions: Vec<&str> = crate::VERSION.split(".").collect();
-    if versions.len() > 0 {
-        version_major = versions[0];
-    }
-    if versions.len() > 1 {
-        version_minor = versions[1];
-    }
-    if versions.len() > 2 {
-        version_build = versions[2];
-    }
+    let (version_major, version_minor, version_build, version_revision) = version_parts();
     let app_name = crate::get_app_name();
 
     let current_exe = std::env::current_exe()?;
@@ -1741,13 +1760,16 @@ reg add {subkey} /f /v DisplayIcon /t REG_SZ /d \"{display_icon}\"
 reg add {subkey} /f /v DisplayName /t REG_SZ /d \"{app_name}\"
 reg add {subkey} /f /v DisplayVersion /t REG_SZ /d \"{version}\"
 reg add {subkey} /f /v Version /t REG_SZ /d \"{version}\"
+reg add {subkey} /f /v RawVersion /t REG_SZ /d \"{raw_version}\"
 reg add {subkey} /f /v BuildDate /t REG_SZ /d \"{build_date}\"
 reg add {subkey} /f /v InstallLocation /t REG_SZ /d \"{path}\"
 reg add {subkey} /f /v Publisher /t REG_SZ /d \"{app_name}\"
 reg add {subkey} /f /v VersionMajor /t REG_DWORD /d {version_major}
 reg add {subkey} /f /v VersionMinor /t REG_DWORD /d {version_minor}
 reg add {subkey} /f /v VersionBuild /t REG_DWORD /d {version_build}
+reg add {subkey} /f /v VersionRevision /t REG_DWORD /d {version_revision}
 reg add {subkey} /f /v UninstallString /t REG_SZ /d \"\\\"{exe}\\\" --uninstall\"
+reg add {subkey} /f /v QuietUninstallString /t REG_SZ /d \"\\\"{exe}\\\" --uninstall --silent\"
 reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
 reg add {subkey} /f /v WindowsInstaller /t REG_DWORD /d 0
 cscript \"{mk_shortcut}\"
@@ -1762,7 +1784,8 @@ copy /Y \"{tmp_path}\\Uninstall {app_name}.lnk\" \"{path}\\\"
 {sleep}
     ",
         display_icon = get_custom_icon(&path, &cur_exe).unwrap_or(exe.to_string()),
-        version = crate::VERSION.replace("-", "."),
+        version = numeric_version(),
+        raw_version = crate::VERSION,
         build_date = crate::BUILD_DATE,
         after_install = get_after_install(
             &exe,
@@ -1800,7 +1823,14 @@ fn get_before_uninstall(kill_self: bool) -> String {
     let filter = if kill_self {
         "".to_string()
     } else {
-        format!(" /FI \"PID ne {}\"", get_current_pid())
+        let mut filter = format!(" /FI \"PID ne {}\"", get_current_pid());
+        // The silent uninstall started from the install dir waits for its copy in %TEMP%.
+        if let Ok(parent) = std::env::var(UNINSTALL_PARENT_PID_ENV) {
+            if parent.chars().all(|c| c.is_ascii_digit()) && !parent.is_empty() {
+                filter.push_str(&format!(" /FI \"PID ne {}\"", parent));
+            }
+        }
+        filter
     };
     format!(
         "
@@ -1832,7 +1862,9 @@ fn get_before_uninstall(kill_self: bool) -> String {
 fn get_uninstall(kill_self: bool, uninstall_printer: bool) -> String {
     let reg_uninstall_string = get_reg("UninstallString");
     if reg_uninstall_string.to_lowercase().contains("msiexec.exe") {
-        return reg_uninstall_string;
+        // Without /qn msiexec waits for a confirmation that nobody sees when
+        // the installer runs as SYSTEM, and the install script hangs on it.
+        return format!("{} /qn /norestart", reg_uninstall_string);
     }
 
     let mut uninstall_cert_cmd = "".to_string();
@@ -3330,20 +3362,8 @@ pub fn update_me(debug: bool) -> ResultType<()> {
     kill_process_by_pids(&app_exe_name, tray_pids)?;
     let is_service_running = is_self_service_running();
 
-    let mut version_major = "0";
-    let mut version_minor = "0";
-    let mut version_build = "0";
-    let versions: Vec<&str> = crate::VERSION.split(".").collect();
-    if versions.len() > 0 {
-        version_major = versions[0];
-    }
-    if versions.len() > 1 {
-        version_minor = versions[1];
-    }
-    if versions.len() > 2 {
-        version_build = versions[2];
-    }
-    let version = crate::VERSION.replace("-", ".");
+    let (version_major, version_minor, version_build, _) = version_parts();
+    let version = numeric_version();
     let size = get_directory_size_kb(&path);
     let build_date = crate::BUILD_DATE;
     // Use the icon in the previous installation directory if possible.
@@ -3379,8 +3399,12 @@ reg add {subkey} /f /v BuildDate /t REG_SZ /d \"{build_date}\"
 reg add {subkey} /f /v VersionMajor /t REG_DWORD /d {version_major}
 reg add {subkey} /f /v VersionMinor /t REG_DWORD /d {version_minor}
 reg add {subkey} /f /v VersionBuild /t REG_DWORD /d {version_build}
+reg add {subkey} /f /v VersionRevision /t REG_DWORD /d {version_revision}
+reg add {subkey} /f /v RawVersion /t REG_SZ /d \"{raw_version}\"
 reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
-        "
+        ",
+            version_revision = version_parts().3,
+            raw_version = crate::VERSION,
         )
     }
 
@@ -3411,7 +3435,15 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
         } else {
             "".to_owned()
         };
-        format!("{}{}", reg_cmd_main, reg_cmd_msi)
+        // Older installs have no quiet uninstall command for deployment tools.
+        let reg_quiet_uninstall = if is_msi.unwrap_or(false) {
+            "".to_owned()
+        } else {
+            format!(
+                "reg add {subkey} /f /v QuietUninstallString /t REG_SZ /d \"\\\"{exe}\\\" --uninstall --silent\""
+            )
+        };
+        format!("{}{}\n{}", reg_cmd_main, reg_cmd_msi, reg_quiet_uninstall)
     };
 
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
@@ -3793,7 +3825,8 @@ fn run_after_run_cmds(silent: bool) {
             .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
             .spawn());
     }
-    if Config::get_option("stop-service") != "Y" {
+    // A tray started by an unattended SYSTEM install would live in session 0.
+    if Config::get_option("stop-service") != "Y" && !(silent && is_root()) {
         allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
     }
     std::thread::sleep(std::time::Duration::from_millis(300));
@@ -4832,5 +4865,410 @@ pub fn show_exit_password_wrong() {
             caption.as_ptr(),
             winapi::um::winuser::MB_OK | winapi::um::winuser::MB_ICONWARNING,
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unattended install / uninstall for deployment tools (MECM/SCCM, psexec -s).
+// The process exits only when the work is done: 0 = success, 3010 = reboot
+// required, 1603 = failure. Every step goes to %ProgramData%\<app>\install.log.
+// ---------------------------------------------------------------------------
+
+pub const EXIT_INSTALL_FAILURE: i32 = 1603;
+const UNINSTALL_PARENT_PID_ENV: &str = "TNURS_UNINSTALL_PARENT_PID";
+pub const EXIT_REBOOT_REQUIRED: i32 = 3010;
+
+/// ProductCodes of early TnursRemoteDesk MSI builds (1.4.6+64, 1.4.9+67).
+const KNOWN_MSI_PRODUCT_CODES: [&str; 2] = [
+    "{F69797D1-4E7E-4CE6-86F8-727D381B6829}",
+    "{3E422700-ACA7-4E93-97E4-E62AA9333088}",
+];
+
+fn install_data_dir() -> PathBuf {
+    let base = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_owned());
+    PathBuf::from(base).join(crate::get_app_name())
+}
+
+/// Append a line to `%ProgramData%\<app>\install.log` (and the regular log).
+pub fn install_log(msg: &str) {
+    log::info!("install: {}", msg);
+    let dir = install_data_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("install.log"))
+    {
+        let _ = writeln!(
+            f,
+            "{} [{}] {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            std::process::id(),
+            msg
+        );
+    }
+}
+
+/// Config directory of the service (it runs as LocalSystem, but the config is
+/// mapped to the LocalService profile, see `hbb_common::config::patch`).
+fn service_config_dir() -> PathBuf {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+    PathBuf::from(root)
+        .join("ServiceProfiles\\LocalService\\AppData\\Roaming")
+        .join(crate::get_app_name())
+        .join("config")
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
+fn service_config_file() -> PathBuf {
+    service_config_dir().join(format!("{}.toml", crate::get_app_name()))
+}
+
+/// Keep ID, permanent password and server settings across MSI removal.
+fn backup_service_config() -> Option<PathBuf> {
+    let src = service_config_dir();
+    if !service_config_file().is_file() {
+        install_log(&format!("no service config to back up in {:?}", src));
+        return None;
+    }
+    let dst = install_data_dir().join("config-backup");
+    let _ = std::fs::remove_dir_all(&dst);
+    match copy_dir_all(&src, &dst) {
+        Ok(()) => {
+            install_log(&format!("service config backed up to {:?}", dst));
+            Some(dst)
+        }
+        Err(e) => {
+            install_log(&format!("service config backup failed: {}", e));
+            None
+        }
+    }
+}
+
+fn restore_service_config_if_missing(backup: &Option<PathBuf>) -> ResultType<()> {
+    let Some(backup) = backup else {
+        return Ok(());
+    };
+    if service_config_file().is_file() {
+        return Ok(());
+    }
+    copy_dir_all(backup, &service_config_dir())?;
+    install_log("service config restored from backup");
+    Ok(())
+}
+
+struct MsiProduct {
+    code: String,
+    name: String,
+    version: String,
+}
+
+fn product_code_from(text: &str) -> Option<String> {
+    let start = text.find('{')?;
+    let end = start + text[start..].find('}')?;
+    Some(text[start..=end].to_uppercase())
+}
+
+/// MSI installs of this app: known ProductCodes or any Uninstall entry named
+/// like the app whose uninstaller is msiexec.
+fn find_msi_products() -> Vec<MsiProduct> {
+    let app_name = crate::get_app_name();
+    let mut found: Vec<MsiProduct> = Vec::new();
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    for view in [KEY_WOW64_64KEY, KEY_WOW64_32KEY] {
+        let Ok(uninstall) = hklm.open_subkey_with_flags(
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+            KEY_READ | view,
+        ) else {
+            continue;
+        };
+        for key_name in uninstall.enum_keys().flatten() {
+            let Ok(key) = uninstall.open_subkey_with_flags(&key_name, KEY_READ | view) else {
+                continue;
+            };
+            let name: String = key.get_value("DisplayName").unwrap_or_default();
+            let uninstall_string: String = key.get_value("UninstallString").unwrap_or_default();
+            let windows_installer: u32 = key.get_value("WindowsInstaller").unwrap_or(0);
+            let Some(code) = product_code_from(&key_name)
+                .filter(|c| c.len() == 38)
+                .or_else(|| product_code_from(&uninstall_string))
+            else {
+                continue;
+            };
+            let known = KNOWN_MSI_PRODUCT_CODES
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(&code));
+            let same_app = name.trim().eq_ignore_ascii_case(&app_name)
+                && (uninstall_string.to_lowercase().contains("msiexec")
+                    || windows_installer == 1);
+            if (known || same_app) && !found.iter().any(|p| p.code == code) {
+                found.push(MsiProduct {
+                    code,
+                    name,
+                    version: key.get_value("DisplayVersion").unwrap_or_default(),
+                });
+            }
+        }
+    }
+    found
+}
+
+/// Returns `true` when Windows Installer asks for a reboot.
+fn uninstall_msi(product: &MsiProduct) -> ResultType<bool> {
+    let log_path = install_data_dir().join(format!(
+        "msi-uninstall-{}.log",
+        product.code.trim_matches(|c| c == '{' || c == '}')
+    ));
+    install_log(&format!(
+        "removing MSI {} \"{}\" {}",
+        product.code, product.name, product.version
+    ));
+    let status = std::process::Command::new("msiexec.exe")
+        .args(["/x", product.code.as_str(), "/qn", "/norestart", "/l*v"])
+        .arg(&log_path)
+        .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
+        .status()?;
+    let code = status.code().unwrap_or(-1);
+    install_log(&format!("msiexec /x {} exit code {}", product.code, code));
+    match code {
+        // 1605: the product is not installed anymore.
+        0 | 1605 => Ok(false),
+        // 1641: reboot initiated, 3010: reboot required.
+        1641 | 3010 => Ok(true),
+        _ => bail!(
+            "msiexec /x {} failed with code {}, see {:?}",
+            product.code,
+            code,
+            log_path
+        ),
+    }
+}
+
+/// MSI builds also wrote `Uninstall\<app>` pointing to msiexec; it may survive
+/// the MSI removal and would hide the new install.
+fn remove_stale_msi_entry() {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let path = format!(
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        crate::get_app_name()
+    );
+    for view in [KEY_WOW64_64KEY, KEY_WOW64_32KEY] {
+        let Ok(key) = hklm.open_subkey_with_flags(&path, KEY_READ | view) else {
+            continue;
+        };
+        let uninstall_string: String = key.get_value("UninstallString").unwrap_or_default();
+        drop(key);
+        if !uninstall_string.to_lowercase().contains("msiexec") {
+            continue;
+        }
+        let Ok(parent) = hklm.open_subkey_with_flags(
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+            KEY_ALL_ACCESS | view,
+        ) else {
+            continue;
+        };
+        match parent.delete_subkey_all(crate::get_app_name()) {
+            Ok(()) => install_log(&format!("removed stale MSI entry {}", path)),
+            Err(e) => install_log(&format!("failed to remove stale MSI entry {}: {}", path, e)),
+        }
+    }
+}
+
+fn installed_display_version() -> String {
+    let (subkey, _, _, _) = get_default_install_info();
+    get_reg_of(&subkey, "DisplayVersion")
+}
+
+fn needs_service() -> bool {
+    !config::is_outgoing_only() && Config::get_option("stop-service") != "Y"
+}
+
+fn wait_service_running(timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if is_self_service_running() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    is_self_service_running()
+}
+
+fn verify_installed(version: &str) -> ResultType<()> {
+    let (_, _, _, exe) = get_default_install_info();
+    if !Path::new(&exe).is_file() {
+        bail!("{} is missing after install", exe);
+    }
+    let installed = installed_display_version();
+    if installed != version {
+        bail!(
+            "DisplayVersion is \"{}\" after install, expected \"{}\"",
+            installed,
+            version
+        );
+    }
+    if needs_service() && !wait_service_running(Duration::from_secs(30)) {
+        install_log("service is not running, starting it");
+        let _ = std::process::Command::new("sc")
+            .arg("start")
+            .arg(crate::get_app_name())
+            .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
+            .status();
+        if !wait_service_running(Duration::from_secs(30)) {
+            bail!("service {} is not running after install", crate::get_app_name());
+        }
+    }
+    Ok(())
+}
+
+fn silent_install_(options: &str, debug: bool) -> ResultType<bool> {
+    if config::is_disable_installation() {
+        bail!("installation is disabled in this build");
+    }
+    let version = numeric_version();
+    let msi_products = find_msi_products();
+    if msi_products.is_empty()
+        && installed_display_version() == version
+        && verify_installed(&version).is_ok()
+    {
+        install_log(&format!("version {} is already installed, nothing to do", version));
+        return Ok(false);
+    }
+    let backup = backup_service_config();
+    let mut reboot = false;
+    for product in &msi_products {
+        reboot |= uninstall_msi(product)?;
+    }
+    if !msi_products.is_empty() {
+        remove_stale_msi_entry();
+    }
+    if !find_msi_products().is_empty() {
+        bail!("an MSI install of {} is still present", crate::get_app_name());
+    }
+    restore_service_config_if_missing(&backup)?;
+    install_log(&format!("installing {} ({})", version, crate::VERSION));
+    install_me(options, "".to_owned(), true, debug)?;
+    verify_installed(&version)?;
+    Ok(reboot)
+}
+
+/// `--silent-install`: synchronous, no UI; returns the process exit code.
+pub fn silent_install(options: &str, debug: bool) -> i32 {
+    install_log(&format!(
+        "silent install of {} started from {:?} (system: {})",
+        crate::VERSION,
+        std::env::current_exe().unwrap_or_default(),
+        is_root()
+    ));
+    match silent_install_(options, debug) {
+        Ok(reboot) => {
+            install_log(if reboot {
+                "silent install finished, reboot required (3010)"
+            } else {
+                "silent install finished (0)"
+            });
+            if reboot {
+                EXIT_REBOOT_REQUIRED
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            install_log(&format!("silent install failed (1603): {}", e));
+            EXIT_INSTALL_FAILURE
+        }
+    }
+}
+
+/// When started from the install directory (QuietUninstallString), run a copy
+/// from %TEMP%: the running exe would keep the directory from being removed.
+fn relaunch_uninstall_from_temp() -> Option<i32> {
+    let (_, path, _, _) = get_install_info();
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    if !dir
+        .to_string_lossy()
+        .eq_ignore_ascii_case(path.trim_end_matches('\\'))
+    {
+        return None;
+    }
+    let tmp = std::env::temp_dir().join(format!("{}-uninstall", crate::get_app_name()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    if let Err(e) = copy_dir_all(dir, &tmp) {
+        install_log(&format!("copy to {:?} for uninstall failed: {}", tmp, e));
+        return None;
+    }
+    let tmp_exe = tmp.join(exe.file_name()?);
+    install_log(&format!("uninstall relaunched from {:?}", tmp_exe));
+    let code = std::process::Command::new(&tmp_exe)
+        .args(["--uninstall", "--silent"])
+        .env(UNINSTALL_PARENT_PID_ENV, std::process::id().to_string())
+        .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
+        .status()
+        .ok()
+        .and_then(|s| s.code())
+        .unwrap_or(EXIT_INSTALL_FAILURE);
+    Some(code)
+}
+
+/// `--uninstall --silent`: synchronous, no UI; returns the process exit code.
+pub fn silent_uninstall() -> i32 {
+    if let Some(code) = relaunch_uninstall_from_temp() {
+        return code;
+    }
+    install_log(&format!("silent uninstall of {} started", crate::VERSION));
+    let (subkey, path, _, _) = get_install_info();
+    let res = run_cmds(get_uninstall(false, true), false, "uninstall").and_then(|_| {
+        if !get_reg_of(&subkey, "DisplayName").is_empty() {
+            bail!("{} is still registered after uninstall", subkey);
+        }
+        if is_self_service_running() {
+            bail!("service {} is still running after uninstall", crate::get_app_name());
+        }
+        Ok(())
+    });
+    // Files of the waiting parent (started from the install dir) are still in
+    // use: remove the leftovers and this temporary copy once both have exited.
+    if std::env::var(UNINSTALL_PARENT_PID_ENV).is_ok() {
+        let tmp_dir = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|p| p.to_string_lossy().to_string()))
+            .unwrap_or_default();
+        let cleanup = format!(
+            "ping -n 6 127.0.0.1 >nul & if exist \"{path}\" rd /s /q \"{path}\" & if exist \"{tmp_dir}\" rd /s /q \"{tmp_dir}\""
+        );
+        // raw_arg: cmd.exe does not understand Rust's argument quoting.
+        allow_err!(std::process::Command::new("cmd.exe")
+            .arg("/c")
+            .raw_arg(&cleanup)
+            .creation_flags(
+                winapi::um::winbase::CREATE_NO_WINDOW | winapi::um::winbase::DETACHED_PROCESS
+            )
+            .spawn());
+    }
+    match res {
+        Ok(()) => {
+            install_log("silent uninstall finished (0)");
+            0
+        }
+        Err(e) => {
+            install_log(&format!("silent uninstall failed (1603): {}", e));
+            EXIT_INSTALL_FAILURE
+        }
     }
 }

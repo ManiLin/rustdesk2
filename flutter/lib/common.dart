@@ -3943,6 +3943,26 @@ Widget loadCashdeskLogo() {
 }
 
 // max 300 x 60
+/// Card of the portal-style home page: radius 20, `surface-container-low`,
+/// thin outline and a soft shadow.
+Widget homeSurfaceCard(BuildContext context,
+    {required Widget child, EdgeInsets padding = const EdgeInsets.all(20)}) {
+  return Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(
+          color: MyTheme.color(context).border ?? Colors.transparent),
+      boxShadow: const [
+        BoxShadow(color: Color(0x0A000000), blurRadius: 2, offset: Offset(0, 1)),
+      ],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
+}
+
 Widget loadLogo() => const _Logo();
 
 Widget loadIcon(double size) {

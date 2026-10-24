@@ -26,9 +26,27 @@ import '../../common.dart';
 import '../../models/platform_model.dart';
 
 class PeerTabPage extends StatefulWidget {
-  const PeerTabPage({Key? key}) : super(key: key);
+  /// `false` when the tabs are selected from the home navigation menu:
+  /// the switch bar is replaced by the current tab title.
+  final bool showSwitchBar;
+  const PeerTabPage({Key? key, this.showSwitchBar = true}) : super(key: key);
   @override
   State<PeerTabPage> createState() => _PeerTabPageState();
+}
+
+/// Select a peer tab from outside [PeerTabPage] (the home navigation menu).
+Future<void> selectPeerTab(int tabIndex) async {
+  final model = gFFI.peerTabModel;
+  if (tabIndex != model.currentTab) {
+    model.setCurrentTabCachedPeers([]);
+  }
+  model.setCurrentTab(tabIndex);
+  if (tabIndex == PeerTabIndex.ab.index) {
+    gFFI.abModel.pullAb(force: null, quiet: false);
+  } else if (tabIndex == PeerTabIndex.group.index) {
+    gFFI.groupModel.pull(force: false);
+  }
+  await bind.setLocalFlutterOption(k: kOptionPeerTabIndex, v: tabIndex.toString());
 }
 
 class _TabEntry {
@@ -119,8 +137,15 @@ class _PeerTabPageState extends State<PeerTabPage>
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
-                        child: visibleContextMenuListener(
-                            _createSwitchBar(context))),
+                        child: widget.showSwitchBar
+                            ? visibleContextMenuListener(
+                                _createSwitchBar(context))
+                            : Text(
+                                model.tabTooltip(model.currentTab),
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w500),
+                              )),
                     if (stateGlobal.isPortrait.isTrue)
                       ..._portraitRightActions(context)
                     else

@@ -189,7 +189,15 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget {
-  const ConnectionPage({Key? key}) : super(key: key);
+  /// Portal-style home: cards instead of the classic RustDesk layout,
+  /// peer tabs are selected from the home navigation menu.
+  final bool homeLayout;
+
+  /// Card shown next to the connect card in [homeLayout] ("Your Desktop").
+  final Widget? sideCard;
+
+  const ConnectionPage({Key? key, this.homeLayout = false, this.sideCard})
+      : super(key: key);
 
   @override
   State<ConnectionPage> createState() => _ConnectionPageState();
@@ -321,6 +329,9 @@ class _ConnectionPageState extends State<ConnectionPage>
         ],
       );
     }
+    if (widget.homeLayout) {
+      return _buildHomeLayout(context, isOutgoingOnly);
+    }
     return Column(
       children: [
         Expanded(
@@ -345,6 +356,47 @@ class _ConnectionPageState extends State<ConnectionPage>
                 right: isCompactCashdesk ? 10.0 : 0)),
         if (!isOutgoingOnly) const Divider(height: 1),
         if (!isOutgoingOnly) OnlineStatusWidget()
+      ],
+    );
+  }
+
+  Widget _buildHomeLayout(BuildContext context, bool isOutgoingOnly) {
+    final sideCard = widget.sideCard;
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  crossAxisAlignment: WrapCrossAlignment.start,
+                  children: [
+                    homeSurfaceCard(
+                      context,
+                      padding: EdgeInsets.zero,
+                      child: _buildRemoteIDTextField(context),
+                    ),
+                    if (sideCard != null) sideCard,
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: homeSurfaceCard(
+                    context,
+                    padding: const EdgeInsets.fromLTRB(16, 14, 4, 8),
+                    child: PeerTabPage(showSwitchBar: false),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (!isOutgoingOnly) const Divider(height: 1),
+        if (!isOutgoingOnly) OnlineStatusWidget(),
       ],
     );
   }
@@ -378,7 +430,10 @@ class _ConnectionPageState extends State<ConnectionPage>
       width: fieldWidth + horizontalPadding * 2,
       padding: EdgeInsets.fromLTRB(horizontalPadding, verticalTopPadding,
           horizontalPadding, verticalBottomPadding),
-      decoration: BoxDecoration(
+      // In the home layout the surrounding home card draws the frame.
+      decoration: widget.homeLayout
+          ? null
+          : BoxDecoration(
           color: cardFillColor,
           borderRadius: BorderRadius.all(
               Radius.circular(isCompactCashdesk ? 16 : 13)),

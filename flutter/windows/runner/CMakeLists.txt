@@ -28,6 +28,23 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTT
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 
+# Numeric a.b.c.d app version for the exe resources: "1.4.9-8+74" -> 1.4.9.8.
+# Deployment and inventory tools compare FileVersion/ProductVersion numerically.
+if(FLUTTER_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-([0-9]+))?")
+  set(APP_VERSION_MAJOR "${CMAKE_MATCH_1}")
+  set(APP_VERSION_MINOR "${CMAKE_MATCH_2}")
+  set(APP_VERSION_PATCH "${CMAKE_MATCH_3}")
+  set(APP_VERSION_REVISION "${CMAKE_MATCH_5}")
+  if(APP_VERSION_REVISION STREQUAL "")
+    set(APP_VERSION_REVISION 0)
+  endif()
+  target_compile_definitions(${BINARY_NAME} PRIVATE "APP_VERSION_MAJOR=${APP_VERSION_MAJOR}")
+  target_compile_definitions(${BINARY_NAME} PRIVATE "APP_VERSION_MINOR=${APP_VERSION_MINOR}")
+  target_compile_definitions(${BINARY_NAME} PRIVATE "APP_VERSION_PATCH=${APP_VERSION_PATCH}")
+  target_compile_definitions(${BINARY_NAME} PRIVATE "APP_VERSION_REVISION=${APP_VERSION_REVISION}")
+  target_compile_definitions(${BINARY_NAME} PRIVATE "APP_VERSION_STRING=\"${APP_VERSION_MAJOR}.${APP_VERSION_MINOR}.${APP_VERSION_PATCH}.${APP_VERSION_REVISION}\"")
+endif()
+
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 

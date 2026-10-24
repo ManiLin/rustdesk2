@@ -217,6 +217,10 @@ pub fn core_main() -> Option<Vec<String>> {
         {
             use crate::platform;
             if args[0] == "--uninstall" {
+                // QuietUninstallString: synchronous, exit code for deployment tools.
+                if args.iter().any(|a| a == "--silent") {
+                    std::process::exit(platform::silent_uninstall());
+                }
                 if let Err(err) = platform::uninstall_me(true) {
                     log::error!("Failed to uninstall: {}", err);
                 }
@@ -259,27 +263,27 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
                 return None;
             } else if args[0] == "--silent-install" {
-                if config::is_disable_installation() {
-                    return None;
-                }
+                // Synchronous for MECM/SCCM: 0 = success, 3010 = reboot required,
+                // 1603 = failure (details in %ProgramData%\<app>\install.log).
                 let (printer_override, debug) = parse_silent_install_args(&args);
                 let options = platform::get_silent_install_options(printer_override);
-                let res = platform::install_me(options, "".to_owned(), true, debug);
-                let text = match res {
-                    Ok(_) => translate("Installation Successful!".to_string()),
-                    Err(err) => {
-                        println!("Failed with error: {err}");
+                let code = platform::silent_install(options, debug);
+                // No notifications for unattended SYSTEM installs.
+                if !platform::is_root() {
+                    let text = if code == 0 || code == platform::EXIT_REBOOT_REQUIRED {
+                        translate("Installation Successful!".to_string())
+                    } else {
                         translate("Installation failed!".to_string())
-                    }
-                };
-                Toast::new(Toast::POWERSHELL_APP_ID)
-                    .title(&config::APP_NAME.read().unwrap())
-                    .text1(&text)
-                    .sound(Some(Sound::Default))
-                    .duration(Duration::Short)
-                    .show()
-                    .ok();
-                return None;
+                    };
+                    Toast::new(Toast::POWERSHELL_APP_ID)
+                        .title(&config::APP_NAME.read().unwrap())
+                        .text1(&text)
+                        .sound(Some(Sound::Default))
+                        .duration(Duration::Short)
+                        .show()
+                        .ok();
+                }
+                std::process::exit(code);
             } else if args[0] == "--uninstall-cert" {
                 #[cfg(windows)]
                 hbb_common::allow_err!(crate::platform::windows::uninstall_cert());

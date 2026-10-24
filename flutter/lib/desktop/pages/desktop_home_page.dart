@@ -9,11 +9,13 @@ import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/cashdesk_exit_guard.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
+import 'package:flutter_hbb/common/widgets/peer_tab_page.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
+import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -61,6 +63,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = isCashdeskBuild || bind.isIncomingOnly();
+    if (!isIncomingOnly) {
+      return _buildBlock(child: _buildPortalHome(context));
+    }
     return _buildBlock(
         child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -70,6 +75,112 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
       ],
     ));
+  }
+
+  /// Portal-style home: navigation menu on the left, cards on the right.
+  Widget _buildPortalHome(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildNavigationRail(context),
+        Expanded(
+          child: Container(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            child: ConnectionPage(
+              homeLayout: true,
+              sideCard:
+                  bind.isOutgoingOnly() ? null : _buildDesktopCard(context),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNavigationRail(BuildContext context) {
+    final border = MyTheme.color(context).border ?? Colors.transparent;
+    return Container(
+      width: 232,
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border(right: BorderSide(color: border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          ChangeNotifierProvider.value(
+            value: gFFI.peerTabModel,
+            child: Consumer<PeerTabModel>(
+              builder: (context, model, _) => Column(
+                children: model.visibleEnabledOrderedIndexs
+                    .map((t) => _HomeNavItem(
+                          icon: model.tabIcon(t),
+                          label: model.tabTooltip(t),
+                          selected: model.currentTab == t,
+                          onTap: isOptionFixed(kOptionPeerTabIndex)
+                              ? null
+                              : () => selectPeerTab(t),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+          if (!bind.isDisableSettings())
+            _HomeNavItem(
+              icon: Icons.settings_outlined,
+              label: translate('Settings'),
+              selected: false,
+              onTap: () => DesktopTabPage.onAddSetting(),
+            ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _leftPaneScrollController,
+              child: Column(
+                children: [
+                  Obx(() => buildHelpCards(stateGlobal.updateUrl.value)),
+                  buildPluginEntry(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "Your Desktop" card: this device's ID and password.
+  Widget _buildDesktopCard(BuildContext context) {
+    final supportingColor =
+        Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.65);
+    return homeSurfaceCard(
+      context,
+      padding: const EdgeInsets.fromLTRB(0, 20, 8, 12),
+      child: SizedBox(
+        width: 320,
+        child: ChangeNotifierProvider.value(
+          value: gFFI.serverModel,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              buildPresetPasswordWarning(),
+              Text(
+                translate('Your Desktop'),
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+              ).paddingSymmetric(horizontal: 20),
+              Text(
+                translate('desk_tip'),
+                style: TextStyle(fontSize: 13, color: supportingColor),
+              ).paddingOnly(left: 20, top: 6, right: 20, bottom: 10),
+              buildIDBoard(context),
+              buildPasswordBoard(context),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -1219,4 +1330,87 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
       onCancel: close,
     );
   });
+}
+
+/// Item of the home navigation menu: a full pill, the selected one has the
+/// `secondary-container` background and a `primary` mark on the left.
+class _HomeNavItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _HomeNavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  State<_HomeNavItem> createState() => _HomeNavItemState();
+}
+
+class _HomeNavItemState extends State<_HomeNavItem> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final selectedBg = MyTheme.tabbar(context).selectedTabBackgroundColor ??
+        Theme.of(context).hoverColor;
+    final background = widget.selected
+        ? selectedBg
+        : (_hover ? Theme.of(context).hoverColor : Colors.transparent);
+    final contentColor =
+        widget.selected ? textColor : textColor?.withOpacity(0.72);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: widget.onTap,
+          onHover: (v) => setState(() => _hover = v),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            height: 46,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: widget.selected ? primary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(widget.icon,
+                    size: 20, color: widget.selected ? primary : contentColor),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    widget.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: contentColor,
+                      fontWeight:
+                          widget.selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

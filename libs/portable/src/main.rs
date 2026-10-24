@@ -132,7 +132,15 @@ fn is_windows_7() -> bool {
     false
 }
 
+/// Installer commands that deployment tools (MECM/SCCM) run unattended: the
+/// packer must wait for them and return their exit code.
+fn is_blocking_command(args: &[String]) -> bool {
+    args.iter()
+        .any(|a| a == "--silent-install" || a == "--uninstall")
+}
+
 fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
+    let blocking = is_blocking_command(&args);
     println!("executing {}", path.display());
     // setup env
     let exe = std::env::current_exe().unwrap_or_default();
@@ -160,6 +168,22 @@ fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
             .stderr(Stdio::inherit());
     }
     let _child = cmd.spawn();
+    if blocking {
+        let code = match _child {
+            Ok(mut child) => match child.wait() {
+                Ok(status) => status.code().unwrap_or(1603),
+                Err(e) => {
+                    eprintln!("wait failed: {:?}", e);
+                    1603
+                }
+            },
+            Err(e) => {
+                eprintln!("{:?}", e);
+                1603
+            }
+        };
+        std::process::exit(code);
+    }
 
     #[cfg(windows)]
     if _ui {

@@ -14,6 +14,8 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
+import 'package:flutter_hbb/desktop/pages/motrix_overview_page.dart';
+import 'package:flutter_hbb/desktop/widgets/motrix_sidebar.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
@@ -80,12 +82,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildPortalHome(BuildContext context) {
     if (isMotrixShell) {
       // The sidebar lives in the window shell (DesktopTabPage).
-      return Container(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: ConnectionPage(
-          homeLayout: true,
-          sideCard: bind.isOutgoingOnly() ? null : _buildDesktopPills(context),
-          banner: Align(
+      helpBanner() => Align(
             alignment: Alignment.topLeft,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
@@ -97,8 +94,24 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ],
               ),
             ),
-          ),
-        ),
+          );
+      // Both pages stay alive, so the connect field and peer list keep
+      // their state when switching to the overview and back.
+      return Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: Obx(() => IndexedStack(
+              index: MotrixSidebar.overviewSelected.value ? 0 : 1,
+              children: [
+                MotrixOverviewPage(banner: helpBanner()),
+                ConnectionPage(
+                  homeLayout: true,
+                  sideCard: bind.isOutgoingOnly()
+                      ? null
+                      : _buildDesktopPills(context),
+                  banner: helpBanner(),
+                ),
+              ],
+            )),
       );
     }
     return Row(

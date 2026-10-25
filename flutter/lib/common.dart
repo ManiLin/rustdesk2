@@ -29,6 +29,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
+import 'common/motrix_activity.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
@@ -2687,6 +2688,10 @@ connect(BuildContext context, String id,
   final oldId = id;
   id = await bind.mainHandleRelayId(id: id);
   forceRelay = id != oldId || forceRelay;
+  if (isDesktop && desktopType == DesktopType.main) {
+    // Activity of the overview page (Motrix home).
+    ConnectionActivity.record(id);
+  }
   assert(!(isFileTransfer && isTcpTunneling && isRDP),
       "more than one connect type");
 

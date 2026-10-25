@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/motrix_activity.dart';
 import 'package:flutter_hbb/common/widgets/peer_tab_page.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
@@ -24,6 +25,9 @@ class MotrixSidebar extends StatelessWidget {
 
   static final RxBool collapsed = false.obs;
 
+  /// The home tab shows the overview page; it is the first page on start.
+  static final RxBool overviewSelected = true.obs;
+
   void _showHome() => tabController.jumpToByKey(kTabLabelHomePage);
 
   @override
@@ -46,6 +50,17 @@ class MotrixSidebar extends StatelessWidget {
           children: [
             _buildHeader(context, isCollapsed),
             const SizedBox(height: 16),
+            _MotrixNavItem(
+              icon: Icons.space_dashboard_outlined,
+              label: motrixText('Overview', 'Обзор'),
+              collapsed: isCollapsed,
+              selected:
+                  selectedKey == kTabLabelHomePage && overviewSelected.value,
+              onTap: () {
+                _showHome();
+                overviewSelected.value = true;
+              },
+            ),
             ChangeNotifierProvider.value(
               value: gFFI.peerTabModel,
               child: Consumer<PeerTabModel>(
@@ -57,11 +72,13 @@ class MotrixSidebar extends StatelessWidget {
                             label: model.tabTooltip(t),
                             collapsed: isCollapsed,
                             selected: selectedKey == kTabLabelHomePage &&
+                                !overviewSelected.value &&
                                 model.currentTab == t,
                             onTap: isOptionFixed(kOptionPeerTabIndex)
                                 ? null
                                 : () {
                                     _showHome();
+                                    overviewSelected.value = false;
                                     selectPeerTab(t);
                                   },
                           ))
@@ -101,7 +118,10 @@ class MotrixSidebar extends StatelessWidget {
       tooltip: translate('New Connection'),
       onTap: () {
         _showHome();
-        ConnectionPage.requestIdFocus?.call();
+        overviewSelected.value = false;
+        // Let the connection page become visible before focusing the field.
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => ConnectionPage.requestIdFocus?.call());
       },
     );
     // The header doubles as the window drag area (the title bar is gone).

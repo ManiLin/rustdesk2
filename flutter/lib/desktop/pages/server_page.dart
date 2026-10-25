@@ -18,6 +18,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
+import '../../common/motrix_activity.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/file_model.dart';
 import '../../models/platform_model.dart';
@@ -354,16 +355,14 @@ Widget buildConnectionCard(Client client) {
       key: ValueKey(client.id),
       children: [
         _CmHeader(client: client),
-        // AnyDesk-like: labelled permission list fills the window, actions
-        // stay at the bottom.
-        Expanded(
-          child: client.type_() == ClientType.file ||
-                  client.type_() == ClientType.portForward ||
-                  client.type_() == ClientType.terminal ||
-                  client.disconnected
-              ? const SizedBox.shrink()
-              : _PrivilegeBoard(client: client),
-        ),
+        // AnyDesk-like: permission icons under the header, actions at the
+        // bottom of the window.
+        if (!(client.type_() == ClientType.file ||
+            client.type_() == ClientType.portForward ||
+            client.type_() == ClientType.terminal ||
+            client.disconnected))
+          _PrivilegeBoard(client: client),
+        const Spacer(),
         _CmControlPanel(client: client),
       ],
     ).paddingSymmetric(vertical: 4.0, horizontal: 8.0),
@@ -478,6 +477,7 @@ class _CmHeaderState extends State<_CmHeader>
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildClientAvatar().marginOnly(right: 12.0),
           Expanded(
@@ -494,11 +494,13 @@ class _CmHeaderState extends State<_CmHeader>
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  "${translate('ID')} ${formatID(client.peerId)}",
+                  formatID(client.peerId),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 13, color: textColor.withOpacity(0.65)),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.primary),
                 ),
                 if (typeText != null)
                   Container(
@@ -514,38 +516,43 @@ class _CmHeaderState extends State<_CmHeader>
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11)),
                   ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                // Status on its own line (wraps instead of being cut), the
+                // timer below it.
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
                       width: 8,
                       height: 8,
+                      margin: const EdgeInsets.only(top: 4, right: 6),
                       decoration: BoxDecoration(
                           color: statusColor, shape: BoxShape.circle),
-                    ).marginOnly(right: 6),
-                    Flexible(
+                    ),
+                    Expanded(
                       child: Text(
                         statusText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                         style: TextStyle(
-                            fontSize: 12, color: textColor.withOpacity(0.8)),
+                            fontSize: 12,
+                            height: 1.3,
+                            color: textColor.withOpacity(0.8)),
                       ),
                     ),
-                    if (client.authorized)
-                      Obx(
-                        () => Text(
-                          formatDurationToTime(
-                            Duration(seconds: _time.value),
-                          ),
-                          style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              fontFeatures: [FontFeature.tabularFigures()]),
-                        ).marginOnly(left: 8),
-                      ),
                   ],
                 ),
+                if (client.authorized)
+                  Obx(
+                    () => Text(
+                      formatDurationToTime(
+                        Duration(seconds: _time.value),
+                      ),
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: [FontFeature.tabularFigures()]),
+                    ).marginOnly(left: 14, top: 2),
+                  ),
               ],
             ),
           ),
@@ -591,8 +598,8 @@ class _CmHeaderState extends State<_CmHeader>
   Widget _buildClientAvatar() {
     return buildAvatarWidget(
           avatar: client.avatar,
-          size: 52,
-          borderRadius: 14,
+          size: 72,
+          borderRadius: 16,
           fallback: _buildInitialAvatar(),
         ) ??
         _buildInitialAvatar();
@@ -600,19 +607,19 @@ class _CmHeaderState extends State<_CmHeader>
 
   Widget _buildInitialAvatar() {
     return Container(
-      width: 52,
-      height: 52,
+      width: 72,
+      height: 72,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: str2color(client.name),
-        borderRadius: BorderRadius.circular(14.0),
+        borderRadius: BorderRadius.circular(16.0),
       ),
       child: Text(
         client.name.isNotEmpty ? client.name[0].toUpperCase() : '?',
         style: const TextStyle(
           fontWeight: FontWeight.w700,
           color: Colors.white,
-          fontSize: 26,
+          fontSize: 36,
         ),
       ),
     );
@@ -630,49 +637,38 @@ class _PrivilegeBoard extends StatefulWidget {
 
 class _PrivilegeBoardState extends State<_PrivilegeBoard> {
   late final client = widget.client;
-  /// One permission as an AnyDesk-like row: icon, label and a toggle.
+  /// One permission as an AnyDesk-like icon tile: filled when allowed,
+  /// dimmed when not; the label is in the tooltip.
   Widget buildPermissionIcon(bool enabled, IconData iconData,
       Function(bool)? onTap, String tooltipText,
       {required bool canModify}) {
-    final textColor =
-        Theme.of(context).textTheme.titleLarge?.color ?? Colors.white;
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: canModify
-          ? () => checkClickTime(widget.client.id, () => onTap?.call(!enabled))
-          : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: Row(
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: enabled
-                    ? Theme.of(context).hoverColor
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Icon(iconData,
-                  size: 17,
-                  color: enabled ? textColor : textColor.withOpacity(0.4)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                tooltipText,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 13,
-                    height: 1.2,
-                    color: enabled ? textColor : textColor.withOpacity(0.6)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            _MiniToggle(value: enabled, enabled: canModify),
-          ],
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.titleLarge?.color ?? Colors.white;
+    final isDark = theme.brightness == Brightness.dark;
+    final onColor = isDark ? theme.colorScheme.primary : MyTheme.accent;
+    return Tooltip(
+      message:
+          "$tooltipText: ${enabled ? motrixText('on', 'вкл.') : motrixText('off', 'выкл.')}",
+      waitDuration: const Duration(milliseconds: 300),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: canModify
+            ? () =>
+                checkClickTime(widget.client.id, () => onTap?.call(!enabled))
+            : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          decoration: BoxDecoration(
+            color: enabled
+                ? onColor.withOpacity(canModify ? 1 : 0.6)
+                : theme.hoverColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(iconData,
+              size: 20,
+              color: enabled
+                  ? (isDark ? const Color(0xFF10201E) : Colors.white)
+                  : textColor.withOpacity(0.35)),
         ),
       ),
     );
@@ -703,9 +699,14 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                 letterSpacing: 0.7,
                 color: textColor?.withOpacity(0.78)),
           ).marginOnly(left: 10.0, bottom: 6.0),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
+          GridView.count(
+              crossAxisCount: 4,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 1.35,
               children: client.type_() == ClientType.camera
                   ? [
                       buildPermissionIcon(
@@ -864,7 +865,6 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                           canModify: canModifyPermission,
                         )
                     ],
-            ),
           ),
         ],
       ),
@@ -1154,7 +1154,15 @@ class _CmControlPanel extends StatelessWidget {
     // Motrix palette: the accent action is the light primary button (dark
     // text), red / green keep their meaning, outlined becomes dark filled.
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    if (isDark && color == MyTheme.accent) {
+    // AnyDesk-like decision buttons: green "Accept", red "Cancel".
+    if (text == 'Accept') {
+      color = const Color(0xFF2E9E5B);
+      textColor = Colors.white;
+    } else if (text == 'Cancel') {
+      color = const Color(0xFFE5484D);
+      textColor = Colors.white;
+      border = null;
+    } else if (isDark && color == MyTheme.accent) {
       color = MyTheme.motrixButtonDark;
       textColor = const Color(0xFF111111);
       if (icon != null) {
@@ -1188,7 +1196,7 @@ class _CmControlPanel extends StatelessWidget {
     }
     final borderRadius = BorderRadius.circular(10.0);
     final btn = Container(
-      height: 36,
+      height: 40,
       decoration: BoxDecoration(
           color: color, borderRadius: borderRadius, border: border),
       child: InkWell(
@@ -1488,44 +1496,6 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
                   : statusListView(jobTable);
             },
           )),
-    );
-  }
-}
-
-/// Small Motrix-style switch (display only: the row handles the tap).
-class _MiniToggle extends StatelessWidget {
-  final bool value;
-  final bool enabled;
-
-  const _MiniToggle({required this.value, required this.enabled});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final track = value
-        ? (isDark ? MyTheme.motrixButtonDark : MyTheme.accent)
-        : (isDark ? const Color(0xFF3A3A3A) : const Color(0xFFC4C6D0));
-    final knob = value
-        ? (isDark ? const Color(0xFF111111) : Colors.white)
-        : (isDark ? const Color(0xFF9AA3A3) : Colors.white);
-    return Opacity(
-      opacity: enabled ? 1 : 0.5,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: 34,
-        height: 20,
-        padding: const EdgeInsets.all(2),
-        alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-        decoration: BoxDecoration(
-          color: track,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(color: knob, shape: BoxShape.circle),
-        ),
-      ),
     );
   }
 }

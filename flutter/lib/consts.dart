@@ -337,9 +337,11 @@ extension StringExtension on String {
   String get nonBreaking => replaceAll(' ', String.fromCharCode($nbsp));
 }
 
-// Taller than upstream: the labelled permission list (AnyDesk-like) needs room.
-const Size kConnectionManagerWindowSizeClosedChat = Size(300, 560);
-const Size kConnectionManagerWindowSizeOpenChat = Size(700, 560);
+const Size kConnectionManagerWindowSizeClosedChat = Size(300, 490);
+const Size kConnectionManagerWindowSizeOpenChat = Size(700, 490);
+// The incoming connection window opens in the middle of the screen, like
+// AnyDesk (upstream: top right corner).
+const Alignment kConnectionManagerWindowAlignment = Alignment.center;
 // Tabbar transition duration, now we remove the duration
 const Duration kTabTransitionDuration = Duration.zero;
 const double kEmptyMarginTop = 50;

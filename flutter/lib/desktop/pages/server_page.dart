@@ -17,6 +17,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../common.dart';
+import '../../common/formatter/id_formatter.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/file_model.dart';
 import '../../models/platform_model.dart';
@@ -353,18 +354,17 @@ Widget buildConnectionCard(Client client) {
       key: ValueKey(client.id),
       children: [
         _CmHeader(client: client),
-        client.type_() == ClientType.file ||
-                client.type_() == ClientType.portForward ||
-                client.type_() == ClientType.terminal ||
-                client.disconnected
-            ? Offstage()
-            : _PrivilegeBoard(client: client),
+        // AnyDesk-like: labelled permission list fills the window, actions
+        // stay at the bottom.
         Expanded(
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: _CmControlPanel(client: client),
-          ),
-        )
+          child: client.type_() == ClientType.file ||
+                  client.type_() == ClientType.portForward ||
+                  client.type_() == ClientType.terminal ||
+                  client.disconnected
+              ? const SizedBox.shrink()
+              : _PrivilegeBoard(client: client),
+        ),
+        _CmControlPanel(client: client),
       ],
     ).paddingSymmetric(vertical: 4.0, horizontal: 8.0),
   );
@@ -440,125 +440,146 @@ class _CmHeaderState extends State<_CmHeader>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final textColor =
+        Theme.of(context).textTheme.titleLarge?.color ?? Colors.white;
+    final Color statusColor;
+    final String statusText;
+    if (!client.authorized) {
+      statusColor = kColorWarn;
+      statusText = "${translate("Request access to your device")}...";
+    } else if (client.disconnected) {
+      statusColor = textColor.withOpacity(0.4);
+      statusText = translate("Disconnected");
+    } else {
+      statusColor = const Color(0xFF00BC7D);
+      statusText = translate("Connected");
+    }
+    String? typeText;
+    if (client.type_() == ClientType.terminal) {
+      typeText = translate("Terminal");
+    } else if (client.type_() == ClientType.file) {
+      typeText = translate("File Transfer");
+    } else if (client.type_() == ClientType.camera) {
+      typeText = translate("View Camera");
+    } else if (client.portForward.isNotEmpty) {
+      typeText = "Port Forward: ${client.portForward}";
+    }
+    final showChat = client.authorized &&
+        (client.type_() == ClientType.remote ||
+            client.type_() == ClientType.file ||
+            client.type_() == ClientType.camera);
+    // AnyDesk-like session header in the Motrix palette: who is connected,
+    // from which ID, since when.
     return Container(
+      margin: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10.0),
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [
-            Color(0xff00bfe1),
-            Color(0xff0071ff),
-          ],
-        ),
-      ),
-      margin: EdgeInsets.symmetric(horizontal: 5.0, vertical: 10.0),
-      padding: EdgeInsets.only(
-        top: 10.0,
-        bottom: 10.0,
-        left: 10.0,
-        right: 5.0,
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildClientAvatar().marginOnly(right: 10.0),
+          _buildClientAvatar().marginOnly(right: 12.0),
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                FittedBox(
-                    child: Text(
+                Text(
                   client.name,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                    overflow: TextOverflow.ellipsis,
-                  ),
                   maxLines: 1,
-                )),
-                FittedBox(
-                  child: Text(
-                    "(${client.peerId})",
-                    style: TextStyle(color: Colors.white, fontSize: 14),
-                  ),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 17),
                 ),
-                if (client.type_() == ClientType.terminal)
-                  FittedBox(
-                    child: Text(
-                      translate("Terminal"),
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                const SizedBox(height: 2),
+                Text(
+                  "${translate('ID')} ${formatID(client.peerId)}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13, color: textColor.withOpacity(0.65)),
+                ),
+                if (typeText != null)
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).hoverColor,
+                      borderRadius: BorderRadius.circular(999),
                     ),
+                    child: Text(typeText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11)),
                   ),
-                if (client.type_() == ClientType.file)
-                  FittedBox(
-                    child: Text(
-                      translate("File Transfer"),
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ),
-                if (client.type_() == ClientType.camera)
-                  FittedBox(
-                    child: Text(
-                      translate("View Camera"),
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ),
-                if (client.portForward.isNotEmpty)
-                  FittedBox(
-                    child: Text(
-                      "Port Forward: ${client.portForward}",
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ),
-                SizedBox(height: 10.0),
-                FittedBox(
-                    child: Row(
+                const SizedBox(height: 8),
+                Row(
                   children: [
-                    Text(
-                      client.authorized
-                          ? client.disconnected
-                              ? translate("Disconnected")
-                              : translate("Connected")
-                          : "${translate("Request access to your device")}...",
-                      style: TextStyle(color: Colors.white),
-                    ).marginOnly(right: 8.0),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                          color: statusColor, shape: BoxShape.circle),
+                    ).marginOnly(right: 6),
+                    Flexible(
+                      child: Text(
+                        statusText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12, color: textColor.withOpacity(0.8)),
+                      ),
+                    ),
                     if (client.authorized)
                       Obx(
                         () => Text(
                           formatDurationToTime(
                             Duration(seconds: _time.value),
                           ),
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      )
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              fontFeatures: [FontFeature.tabularFigures()]),
+                        ).marginOnly(left: 8),
+                      ),
                   ],
-                ))
+                ),
               ],
             ),
           ),
-          Offstage(
-            offstage: !client.authorized ||
-                (client.type_() != ClientType.remote &&
-                    client.type_() != ClientType.file &&
-                    client.type_() != ClientType.camera),
-            child: IconButton(
-              onPressed: () => checkClickTime(client.id, () {
-                if (client.type_() == ClientType.file) {
-                  gFFI.chatModel.toggleCMFilePage();
-                } else {
-                  gFFI.chatModel
-                      .toggleCMChatPage(MessageKey(client.peerId, client.id));
-                }
-              }),
-              icon: SvgPicture.asset(client.type_() == ClientType.file
-                  ? 'assets/file_transfer.svg'
-                  : 'assets/chat2.svg'),
-              splashRadius: kDesktopIconButtonSplashRadius,
+          if (showChat)
+            Tooltip(
+              message: translate(
+                  client.type_() == ClientType.file ? 'File Transfer' : 'Chat'),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () => checkClickTime(client.id, () {
+                  if (client.type_() == ClientType.file) {
+                    gFFI.chatModel.toggleCMFilePage();
+                  } else {
+                    gFFI.chatModel
+                        .toggleCMChatPage(MessageKey(client.peerId, client.id));
+                  }
+                }),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).hoverColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: SvgPicture.asset(
+                    client.type_() == ClientType.file
+                        ? 'assets/file_transfer.svg'
+                        : 'assets/chat2.svg',
+                    colorFilter: svgColor(textColor),
+                  ),
+                ),
+              ),
             ),
-          )
         ],
       ),
     );
@@ -570,8 +591,8 @@ class _CmHeaderState extends State<_CmHeader>
   Widget _buildClientAvatar() {
     return buildAvatarWidget(
           avatar: client.avatar,
-          size: 70,
-          borderRadius: 15,
+          size: 52,
+          borderRadius: 14,
           fallback: _buildInitialAvatar(),
         ) ??
         _buildInitialAvatar();
@@ -579,19 +600,19 @@ class _CmHeaderState extends State<_CmHeader>
 
   Widget _buildInitialAvatar() {
     return Container(
-      width: 70,
-      height: 70,
+      width: 52,
+      height: 52,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: str2color(client.name),
-        borderRadius: BorderRadius.circular(15.0),
+        borderRadius: BorderRadius.circular(14.0),
       ),
       child: Text(
-        client.name.isNotEmpty ? client.name[0] : '?',
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
+        client.name.isNotEmpty ? client.name[0].toUpperCase() : '?',
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
           color: Colors.white,
-          fontSize: 55,
+          fontSize: 26,
         ),
       ),
     );
@@ -609,36 +630,49 @@ class _PrivilegeBoard extends StatefulWidget {
 
 class _PrivilegeBoardState extends State<_PrivilegeBoard> {
   late final client = widget.client;
+  /// One permission as an AnyDesk-like row: icon, label and a toggle.
   Widget buildPermissionIcon(bool enabled, IconData iconData,
       Function(bool)? onTap, String tooltipText,
       {required bool canModify}) {
-    return Tooltip(
-      message: "$tooltipText: ${enabled ? "ON" : "OFF"}",
-      waitDuration: Duration.zero,
-      child: Container(
-        decoration: BoxDecoration(
-          color: enabled
-              ? (canModify ? MyTheme.accent : MyTheme.accent.withOpacity(0.6))
-              : Colors.grey[700],
-          borderRadius: BorderRadius.circular(10.0),
-        ),
-        padding: EdgeInsets.all(8.0),
-        child: InkWell(
-          onTap: canModify
-              ? () =>
-                  checkClickTime(widget.client.id, () => onTap?.call(!enabled))
-              : null,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              Expanded(
-                child: Icon(
-                  iconData,
-                  color: Colors.white,
-                ),
+    final textColor =
+        Theme.of(context).textTheme.titleLarge?.color ?? Colors.white;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: canModify
+          ? () => checkClickTime(widget.client.id, () => onTap?.call(!enabled))
+          : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: enabled
+                    ? Theme.of(context).hoverColor
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(9),
               ),
-            ],
-          ),
+              child: Icon(iconData,
+                  size: 17,
+                  color: enabled ? textColor : textColor.withOpacity(0.4)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                tooltipText,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 13,
+                    height: 1.2,
+                    color: enabled ? textColor : textColor.withOpacity(0.6)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _MiniToggle(value: enabled, enabled: canModify),
+          ],
         ),
       ),
     );
@@ -646,42 +680,32 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
 
   @override
   Widget build(BuildContext context) {
-    final crossAxisCount = 4;
-    final spacing = 10.0;
     final canModifyPermission =
         bind.mainGetBuildinOption(key: kOptionEnablePermChangeInAcceptWindow) !=
             'N';
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
     return Container(
       width: double.infinity,
-      height: 160.0,
-      margin: EdgeInsets.all(5.0),
-      padding: EdgeInsets.all(5.0),
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+      padding: const EdgeInsets.fromLTRB(6, 12, 6, 6),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10.0),
-        color: Theme.of(context).colorScheme.background,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            spreadRadius: 1,
-            blurRadius: 1,
-            offset: Offset(0, 1.5),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).cardColor,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            translate("Permissions"),
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ).marginOnly(left: 4.0, bottom: 8.0),
+            translate("Permissions").toUpperCase(),
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.7,
+                color: textColor?.withOpacity(0.78)),
+          ).marginOnly(left: 10.0, bottom: 6.0),
           Expanded(
-            child: GridView.count(
-              crossAxisCount: crossAxisCount,
-              padding: EdgeInsets.symmetric(horizontal: spacing),
-              mainAxisSpacing: spacing,
-              crossAxisSpacing: spacing,
+            child: ListView(
+              padding: EdgeInsets.zero,
               children: client.type_() == ClientType.camera
                   ? [
                       buildPermissionIcon(
@@ -1127,24 +1151,44 @@ class _CmControlPanel extends StatelessWidget {
       GestureTapDownCallback? onTapDown}) {
     assert(!(onClick == null && onTapDown == null));
     Widget textWidget;
+    // Motrix palette: the accent action is the light primary button (dark
+    // text), red / green keep their meaning, outlined becomes dark filled.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (isDark && color == MyTheme.accent) {
+      color = MyTheme.motrixButtonDark;
+      textColor = const Color(0xFF111111);
+      if (icon != null) {
+        icon = ColorFiltered(
+            colorFilter:
+                const ColorFilter.mode(Color(0xFF111111), BlendMode.srcIn),
+            child: icon);
+      }
+    } else if (color == Colors.red || color == Colors.redAccent) {
+      color = const Color(0xFFE5484D);
+    } else if (color == Colors.transparent && border != null) {
+      color = Theme.of(context).hoverColor;
+      border = Border.all(color: MyTheme.color(context).border ?? Colors.grey);
+    }
     if (icon != null) {
       textWidget = Text(
         translate(text),
-        style: TextStyle(color: textColor),
+        style: TextStyle(
+            color: textColor, fontSize: 13, fontWeight: FontWeight.w600),
         textAlign: TextAlign.center,
       );
     } else {
       textWidget = Expanded(
         child: Text(
           translate(text),
-          style: TextStyle(color: textColor),
+          style: TextStyle(
+              color: textColor, fontSize: 13, fontWeight: FontWeight.w600),
           textAlign: TextAlign.center,
         ),
       );
     }
     final borderRadius = BorderRadius.circular(10.0);
     final btn = Container(
-      height: 28,
+      height: 36,
       decoration: BoxDecoration(
           color: color, borderRadius: borderRadius, border: border),
       child: InkWell(
@@ -1444,6 +1488,44 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
                   : statusListView(jobTable);
             },
           )),
+    );
+  }
+}
+
+/// Small Motrix-style switch (display only: the row handles the tap).
+class _MiniToggle extends StatelessWidget {
+  final bool value;
+  final bool enabled;
+
+  const _MiniToggle({required this.value, required this.enabled});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final track = value
+        ? (isDark ? MyTheme.motrixButtonDark : MyTheme.accent)
+        : (isDark ? const Color(0xFF3A3A3A) : const Color(0xFFC4C6D0));
+    final knob = value
+        ? (isDark ? const Color(0xFF111111) : Colors.white)
+        : (isDark ? const Color(0xFF9AA3A3) : Colors.white);
+    return Opacity(
+      opacity: enabled ? 1 : 0.5,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: 34,
+        height: 20,
+        padding: const EdgeInsets.all(2),
+        alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: track,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(color: knob, shape: BoxShape.circle),
+        ),
+      ),
     );
   }
 }

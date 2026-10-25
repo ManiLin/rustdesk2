@@ -337,8 +337,9 @@ extension StringExtension on String {
   String get nonBreaking => replaceAll(' ', String.fromCharCode($nbsp));
 }
 
-const Size kConnectionManagerWindowSizeClosedChat = Size(300, 490);
-const Size kConnectionManagerWindowSizeOpenChat = Size(700, 490);
+// Taller than upstream: the labelled permission list (AnyDesk-like) needs room.
+const Size kConnectionManagerWindowSizeClosedChat = Size(300, 560);
+const Size kConnectionManagerWindowSizeOpenChat = Size(700, 560);
 // Tabbar transition duration, now we remove the duration
 const Duration kTabTransitionDuration = Duration.zero;
 const double kEmptyMarginTop = 50;

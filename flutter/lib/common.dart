@@ -183,10 +183,10 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   );
 
   static final dark = ColorThemeExtension(
-    border: Color(0xFF44464F),
+    border: Color(0xFF2E3636),
     border2: Color(0xFF8E909A),
     border3: Colors.white24,
-    highlight: Color(0xFF282A32),
+    highlight: Color(0xFF262626),
     drag_indicator: Colors.grey,
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF93000A),
@@ -265,17 +265,30 @@ class MyTheme {
   static const Color hoverBorder = Color(0xFF747782);
 
   static const String fontFamily = 'Inter';
-  static const Color primaryDark = Color(0xFFB1C5FF);
   static const Color surfaceLight = Color(0xFFF9F9FF);
   static const Color surfaceContainerLowLight = Color(0xFFF3F3FA);
   static const Color surfaceContainerHighLight = Color(0xFFE7E8EF);
   static const Color outlineVariantLight = Color(0xFFC4C6D0);
-  static const Color surfaceDark = Color(0xFF111318);
-  static const Color surfaceContainerLowestDark = Color(0xFF0C0E13);
-  static const Color surfaceContainerLowDark = Color(0xFF191B22);
-  static const Color surfaceContainerDark = Color(0xFF1D2027);
-  static const Color surfaceContainerHighDark = Color(0xFF282A32);
-  static const Color outlineVariantDark = Color(0xFF44464F);
+  // Dark theme follows the Motrix palette: neutral dark content on a
+  // teal-grey shell, soft teal accent, light primary buttons.
+  static const Color primaryDark = Color(0xFF8FD3C8);
+  static const Color surfaceDark = Color(0xFF151D1D);
+  static const Color surfaceContainerLowestDark = Color(0xFF1F2424);
+  static const Color surfaceContainerLowDark = Color(0xFF1B1B1B);
+  static const Color surfaceContainerDark = Color(0xFF1B1B1B);
+  static const Color surfaceContainerHighDark = Color(0xFF262626);
+  static const Color outlineVariantDark = Color(0xFF2E3636);
+  static const Color motrixButtonDark = Color(0xFFECEEEE);
+  static const List<Color> motrixShellDark = [
+    Color(0xFF2B4346),
+    Color(0xFF24383A),
+    Color(0xFF1D2D2E),
+  ];
+  static const List<Color> motrixShellLight = [
+    Color(0xFFE3ECEC),
+    Color(0xFFD6E2E2),
+    Color(0xFFC9D7D7),
+  ];
 
   // ListTile
   static const ListTileThemeData listTileTheme = ListTileThemeData(
@@ -549,22 +562,24 @@ class MyTheme {
             ),
           )
         : mobileTextButtonTheme,
+    // Motrix: light primary buttons, dark filled secondary ones.
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: MyTheme.accent,
-        foregroundColor: Colors.white,
-        disabledForegroundColor: Colors.white70,
+        backgroundColor: motrixButtonDark,
+        foregroundColor: Color(0xFF111111),
+        disabledForegroundColor: Colors.white54,
         disabledBackgroundColor: Colors.white10,
-        shape: const StadiumBorder(),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: Colors.transparent,
-        side: BorderSide(color: Color(0xFF8E909A)),
-        disabledForegroundColor: Colors.white70,
-        foregroundColor: primaryDark,
-        shape: const StadiumBorder(),
+        backgroundColor: surfaceContainerHighDark,
+        side: BorderSide(color: Color(0xFF333333)),
+        disabledForegroundColor: Colors.white54,
+        foregroundColor: Color(0xFFF2F4F4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     ),
     switchTheme: switchTheme(),
@@ -3988,6 +4003,22 @@ BoxDecoration homeIconButtonDecoration(BuildContext context,
         Border.all(color: MyTheme.color(context).border ?? Colors.transparent),
   );
 }
+
+/// Motrix-style main window: gradient sidebar + rounded content panel.
+/// Compact (incoming-only / cashdesk) builds and macOS keep the classic window.
+bool get isMotrixShell =>
+    isDesktop &&
+    !isMacOS &&
+    !kUseCompatibleUiMode &&
+    !(isCashdeskBuild || bind.isIncomingOnly());
+
+LinearGradient motrixShellGradient(BuildContext context) => LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: Theme.of(context).brightness == Brightness.dark
+          ? MyTheme.motrixShellDark
+          : MyTheme.motrixShellLight,
+    );
 
 Widget loadLogo() => const _Logo();
 

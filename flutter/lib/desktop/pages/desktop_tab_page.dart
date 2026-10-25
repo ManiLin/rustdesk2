@@ -3,6 +3,7 @@ import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
+import 'package:flutter_hbb/desktop/widgets/motrix_sidebar.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -98,9 +99,44 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
     super.dispose();
   }
 
+  /// Motrix-style window: gradient sidebar on the left, the tab view (with
+  /// the window buttons) inside a rounded content panel.
+  Widget _buildMotrixShell(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: BoxDecoration(gradient: motrixShellGradient(context)),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            MotrixSidebar(tabController: tabController),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    child: DesktopTab(
+                      controller: tabController,
+                      showLogo: false,
+                      showTitle: false,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tabWidget = Container(
+    final tabWidget = isMotrixShell
+        ? _buildMotrixShell(context)
+        : Container(
         child: Scaffold(
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(

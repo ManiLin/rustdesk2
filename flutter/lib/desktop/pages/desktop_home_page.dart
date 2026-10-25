@@ -78,6 +78,29 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   /// Portal-style home: navigation menu on the left, cards on the right.
   Widget _buildPortalHome(BuildContext context) {
+    if (isMotrixShell) {
+      // The sidebar lives in the window shell (DesktopTabPage).
+      return Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: ConnectionPage(
+          homeLayout: true,
+          sideCard: bind.isOutgoingOnly() ? null : _buildDesktopPills(context),
+          banner: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Obx(() => buildHelpCards(stateGlobal.updateUrl.value)),
+                  buildPluginEntry(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -146,6 +169,73 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
         ],
       ),
+    );
+  }
+
+  /// Motrix status bar pills: this device's ID and one-time password.
+  Widget _buildDesktopPills(BuildContext context) {
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final caption = TextStyle(fontSize: 12, color: textColor?.withOpacity(0.6));
+    const value = TextStyle(fontSize: 12, fontWeight: FontWeight.w600);
+    void copy(String text) {
+      Clipboard.setData(ClipboardData(text: text));
+      showToast(translate("Copied"));
+    }
+
+    Widget pill(List<Widget> children) => Container(
+          height: 30,
+          padding: const EdgeInsets.only(left: 12, right: 4),
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).hoverColor,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: children),
+        );
+    Widget icon(IconData data, String tip, VoidCallback onTap) => Tooltip(
+          message: tip,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onTap,
+            child: SizedBox(
+                width: 24,
+                height: 24,
+                child: Icon(data, size: 14, color: textColor?.withOpacity(0.8))),
+          ),
+        );
+
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(builder: (context, model, _) {
+        final showOneTime = model.approveMode != 'click' &&
+            model.verificationMethod != kUsePermanentPassword;
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          pill([
+            Text(translate('ID'), style: caption),
+            const SizedBox(width: 8),
+            Text(model.serverId.text,
+                style: value.copyWith(letterSpacing: 0.4)),
+            const SizedBox(width: 4),
+            icon(Icons.copy_rounded, translate('Copy to clipboard'),
+                () => copy(model.serverId.text)),
+          ]),
+          pill([
+            Text(translate('Password'), style: caption),
+            const SizedBox(width: 8),
+            Text(showOneTime ? model.serverPasswd.text : '-', style: value),
+            const SizedBox(width: 4),
+            if (showOneTime)
+              icon(Icons.refresh_rounded, translate('Refresh Password'),
+                  () => bind.mainUpdateTemporaryPassword()),
+            if (!bind.isDisableSettings())
+              icon(Icons.edit_outlined, translate('Change Password'),
+                  () => DesktopSettingPage.switch2page(SettingsTabKey.safety)),
+            if (showOneTime)
+              icon(Icons.copy_rounded, translate('Copy to clipboard'),
+                  () => copy(model.serverPasswd.text)),
+          ]),
+        ]);
+      }),
     );
   }
 

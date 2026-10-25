@@ -29,7 +29,11 @@ class PeerTabPage extends StatefulWidget {
   /// `false` when the tabs are selected from the home navigation menu:
   /// the switch bar is replaced by the current tab title.
   final bool showSwitchBar;
-  const PeerTabPage({Key? key, this.showSwitchBar = true}) : super(key: key);
+
+  /// Extra header content before the tools (quick connect in the Motrix home).
+  final Widget? headerTrailing;
+  const PeerTabPage({Key? key, this.showSwitchBar = true, this.headerTrailing})
+      : super(key: key);
   @override
   State<PeerTabPage> createState() => _PeerTabPageState();
 }
@@ -123,6 +127,18 @@ class _PeerTabPageState extends State<PeerTabPage>
       return model.multiSelectionMode ? createMultiSelectionBar(model) : widget;
     }
 
+    if (!widget.showSwitchBar && isMotrixShell) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 64,
+            child: selectionWrap(_buildMotrixHeader(context, model)),
+          ),
+          _createPeersView(),
+        ],
+      );
+    }
     return Column(
       textBaseline: TextBaseline.ideographic,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,6 +171,63 @@ class _PeerTabPageState extends State<PeerTabPage>
               ),
             ).paddingOnly(right: stateGlobal.isPortrait.isTrue ? 0 : 12)),
         _createPeersView(),
+      ],
+    );
+  }
+
+  /// Motrix page header: bold title + counter, quick connect, and the tools
+  /// grouped in one dark pill (flat buttons inside, no per-button frames).
+  Widget _buildMotrixHeader(BuildContext context, PeerTabModel model) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final trailing = widget.headerTrailing;
+    final flatTheme = theme.copyWith(
+      hoverColor: Colors.transparent,
+      extensions: <ThemeExtension<dynamic>>[
+        MyTheme.color(context).copyWith(border: Colors.transparent),
+        MyTheme.tabbar(context),
+      ],
+    );
+    return Row(
+      children: [
+        Flexible(
+          child: Text(
+            model.tabTooltip(model.currentTab),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Container(
+          height: 24,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0E1010) : Colors.black12,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text('${model.currentTabCachedPeers.length}',
+              style:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        ),
+        const Spacer(),
+        if (trailing != null) ...[trailing, const SizedBox(width: 12)],
+        Theme(
+          data: flatTheme,
+          child: Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 3),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0E1010) : Colors.black12,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _landscapeRightActions(context),
+            ),
+          ),
+        ),
       ],
     );
   }

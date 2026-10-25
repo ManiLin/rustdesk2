@@ -76,6 +76,7 @@ class _AddressBookState extends State<AddressBook> {
       });
 
   Widget _buildAddressBookLandscape() {
+    if (isMotrixShell) return _buildAddressBookMotrix();
     return Row(
       children: [
         Offstage(
@@ -112,6 +113,129 @@ class _AddressBookState extends State<AddressBook> {
         _buildPeersViews()
       ],
     );
+  }
+
+  /// Motrix layout: address books as a segmented control and tags as a chip
+  /// row above the peer grid (no left panel).
+  Widget _buildAddressBookMotrix() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Flexible(child: _buildAbSegmented()),
+          const SizedBox(width: 8),
+          _buildAbPermission(),
+        ]),
+        if (!hideAbTagsPanel.value)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 74),
+                    child: SingleChildScrollView(child: _buildTagChips()),
+                  ),
+                ),
+                Listener(
+                    onPointerDown: (e) {
+                      final x = e.position.dx;
+                      final y = e.position.dy;
+                      menuPos = RelativeRect.fromLTRB(x, y, x, y);
+                    },
+                    onPointerUp: (_) => _showMenu(menuPos),
+                    child: build_more(context, invert: true))
+                    .marginOnly(left: 6, top: 3),
+              ],
+            ),
+          ),
+        const SizedBox(height: 12),
+        _buildPeersViews(),
+      ],
+    );
+  }
+
+  Widget _buildAbSegmented() {
+    if (gFFI.abModel.legacyMode.value) return const SizedBox.shrink();
+    final names = gFFI.abModel.addressBookNames();
+    final current = gFFI.abModel.currentName.value;
+    if (!names.contains(current)) return const SizedBox.shrink();
+    final personal = gFFI.abModel.personalAddressBookName();
+    final hasPersonal = names.remove(personal);
+    names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    if (hasPersonal) names.insert(0, personal);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isOptFixed = isOptionFixed(kOptionCurrentAbName);
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).hoverColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: names.map((name) {
+            final selected = name == current;
+            return GestureDetector(
+              onTap: isOptFixed || selected
+                  ? null
+                  : () {
+                      gFFI.abModel.setCurrentName(name);
+                      bind.setLocalFlutterOption(
+                          k: kOptionCurrentAbName, v: name);
+                    },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? (isDark ? const Color(0xFF0A0A0A) : Colors.white)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  gFFI.abModel.translatedName(name),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected ? textColor : textColor?.withOpacity(0.7),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTagChips() {
+    return Obx(() {
+      final tags = gFFI.abModel.currentAbTags.toList();
+      if (gFFI.abModel.sortTags.value) tags.sort();
+      final editPermission = gFFI.abModel.current.canWrite();
+      return Wrap(
+        children: [kUntagged, ...tags]
+            .map((e) => AddressBookTag(
+                name: e,
+                tags: gFFI.abModel.selectedTags,
+                onTap: () {
+                  if (gFFI.abModel.selectedTags.contains(e)) {
+                    gFFI.abModel.selectedTags.remove(e);
+                  } else {
+                    gFFI.abModel.selectedTags.add(e);
+                  }
+                },
+                showActionMenu: editPermission))
+            .toList(),
+      );
+    });
   }
 
   Widget _buildAddressBookPortrait() {

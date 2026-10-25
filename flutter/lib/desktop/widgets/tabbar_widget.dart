@@ -1415,6 +1415,8 @@ class _TabDropDownButtonState extends State<_TabDropDownButton> {
 }
 
 bool _showTabBarBottomDivider(DesktopTabType tabType) {
+  // Inside the Motrix content panel the bar blends into the page.
+  if (tabType == DesktopTabType.main && isMotrixShell) return false;
   return tabType == DesktopTabType.main || tabType == DesktopTabType.install;
 }
 
@@ -1455,16 +1457,16 @@ class TabbarTheme extends ThemeExtension<TabbarTheme> {
       selectedTabBackgroundColor: Color(0xFFDCE2F9));
 
   static const dark = TabbarTheme(
-      selectedTabIconColor: Color(0xFFB1C5FF),
-      unSelectedTabIconColor: Color(0xFF2F4678),
+      selectedTabIconColor: Color(0xFF8FD3C8),
+      unSelectedTabIconColor: Color(0xFF5E6E6E),
       selectedTextColor: Colors.white,
       unSelectedTextColor: Color.fromARGB(255, 192, 192, 192),
       selectedIconColor: Color.fromARGB(255, 192, 192, 192),
       unSelectedIconColor: Color.fromARGB(255, 255, 255, 255),
-      dividerColor: Color(0xFF44464F),
-      hoverColor: Color(0xFF282A32),
+      dividerColor: Color(0xFF2E3636),
+      hoverColor: Color(0xFF262626),
       closeHoverColor: Colors.black,
-      selectedTabBackgroundColor: Color(0xFF404659));
+      selectedTabBackgroundColor: Color(0xFF2F3737));
 
   @override
   ThemeExtension<TabbarTheme> copyWith({

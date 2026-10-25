@@ -22,10 +22,14 @@ import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
 class OnlineStatusWidget extends StatefulWidget {
-  const OnlineStatusWidget({Key? key, this.onSvcStatusChanged})
+  const OnlineStatusWidget(
+      {Key? key, this.onSvcStatusChanged, this.compact = false})
       : super(key: key);
 
   final VoidCallback? onSvcStatusChanged;
+
+  /// Motrix status bar pill instead of the full-width status row.
+  final bool compact;
 
   @override
   State<OnlineStatusWidget> createState() => _OnlineStatusWidgetState();
@@ -37,8 +41,9 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
 
-  double get em => 14.0;
-  double? get height => bind.isIncomingOnly() ? null : em * 3;
+  double get em => widget.compact ? 12.0 : 14.0;
+  double? get height =>
+      widget.compact ? 30 : (bind.isIncomingOnly() ? null : em * 3);
 
   void onUsePublicServerGuide() {
     const url = "https://rustdesk.com/pricing";
@@ -127,7 +132,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
                         ? Color.fromARGB(255, 50, 190, 166)
                         : Color.fromARGB(255, 224, 79, 95)),
               ),
-            ).marginSymmetric(horizontal: em),
+            ).marginSymmetric(horizontal: widget.compact ? 10 : em),
             Container(
               width: isIncomingOnly ? 226 : null,
               child: _buildConnStatusMsg(),
@@ -140,6 +145,17 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
           ],
         );
 
+    if (widget.compact) {
+      return Container(
+        height: height,
+        padding: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).hoverColor,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Obx(() => basicWidget()),
+      );
+    }
     return Container(
       height: height,
       child: Obx(() => isIncomingOnly
@@ -199,7 +215,14 @@ class ConnectionPage extends StatefulWidget {
   /// Card shown next to the connect card in [homeLayout] ("Your Desktop").
   final Widget? sideCard;
 
-  const ConnectionPage({Key? key, this.homeLayout = false, this.sideCard})
+  /// Optional content above the peer list in [homeLayout] (help cards).
+  final Widget? banner;
+
+  /// Focus the remote ID input (the "+" button of the Motrix sidebar).
+  static VoidCallback? requestIdFocus;
+
+  const ConnectionPage(
+      {Key? key, this.homeLayout = false, this.sideCard, this.banner})
       : super(key: key);
 
   @override
@@ -245,10 +268,14 @@ class _ConnectionPageState extends State<ConnectionPage>
     Get.put<TextEditingController>(_idEditingController);
     Get.put<IDTextEditingController>(_idController);
     windowManager.addListener(this);
+    ConnectionPage.requestIdFocus = () {
+      if (mounted) _idFocusNode.requestFocus();
+    };
   }
 
   @override
   void dispose() {
+    ConnectionPage.requestIdFocus = null;
     _idController.dispose();
     windowManager.removeListener(this);
     _allPeersLoader.clear();
@@ -364,6 +391,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   }
 
   Widget _buildHomeLayout(BuildContext context, bool isOutgoingOnly) {
+    if (isMotrixShell) return _buildMotrixHome(context, isOutgoingOnly);
     return Column(
       children: [
         Expanded(
@@ -393,9 +421,62 @@ class _ConnectionPageState extends State<ConnectionPage>
     );
   }
 
+  /// Motrix page: big title + toolbar with quick connect, books and tags,
+  /// peer grid, status pills at the bottom of the content panel.
+  Widget _buildMotrixHome(BuildContext context, bool isOutgoingOnly) {
+    final banner = widget.banner;
+    final sideCard = widget.sideCard;
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 4, 20, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (banner != null) banner,
+                Expanded(
+                  child: PeerTabPage(
+                    showSwitchBar: false,
+                    headerTrailing: _buildRemoteIDTextField(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: sideCard == null
+                      ? const SizedBox.shrink()
+                      : SingleChildScrollView(
+                          scrollDirection: Axis.horizontal, child: sideCard),
+                ),
+              ),
+              if (!isOutgoingOnly) OnlineStatusWidget(compact: true),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   /// "New connection" + "Your Desktop" in one ~76px card (home layout).
   Widget _buildCompactConnect(
       BuildContext context, Widget idField, Widget connectButtons) {
+    if (isMotrixShell) {
+      // Quick connect in the Motrix page header.
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(width: 200, child: idField),
+        const SizedBox(width: 8),
+        connectButtons,
+      ]);
+    }
     final labelStyle = TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,

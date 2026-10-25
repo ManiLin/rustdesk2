@@ -577,7 +577,7 @@ class _PeerTabPageState extends State<PeerTabPage>
   List<Widget> _landscapeRightActions(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
     return [
-      const PeerSearchBar().marginOnly(right: 13),
+      const PeerSearchBar().marginOnly(right: 6),
       _createRefresh(
           index: PeerTabIndex.ab, loading: gFFI.abModel.currentAbLoading),
       _createRefresh(

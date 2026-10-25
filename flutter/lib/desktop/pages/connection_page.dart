@@ -80,9 +80,12 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
 
     setupServerWidget() => Flexible(
           child: Offstage(
-            offstage: !(!_svcStopped.value &&
-                stateGlobal.svcStatus.value == SvcStatus.ready &&
-                _svcIsUsingPublicServer.value),
+            // The corporate build ships its own server: the "set up your
+            // own server" tip does not apply.
+            offstage: bind.isCustomClient() ||
+                !(!_svcStopped.value &&
+                    stateGlobal.svcStatus.value == SvcStatus.ready &&
+                    _svcIsUsingPublicServer.value),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [

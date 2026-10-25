@@ -38,7 +38,6 @@ const double _kRadioLeftMargin = 10;
 const double _kListViewBottomMargin = 15;
 const double _kTitleFontSize = 20;
 const double _kContentFontSize = 15;
-const Color _accentColor = MyTheme.accent;
 const String _kSettingPageControllerTag = 'settingPageController';
 const String _kSettingPageTabKeyTag = 'settingPageTabKey';
 
@@ -277,7 +276,8 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      // Same surface as the home navigation rail.
+      backgroundColor: Theme.of(context).cardColor,
       body: _buildBlock(
         children: <Widget>[
           SizedBox(
@@ -309,10 +309,10 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     final settingsText = Text(
       translate('Settings'),
       textAlign: TextAlign.left,
-      style: const TextStyle(
-        color: _accentColor,
+      style: TextStyle(
+        color: Theme.of(context).textTheme.titleLarge?.color,
         fontSize: _kTitleFontSize,
-        fontWeight: FontWeight.w400,
+        fontWeight: FontWeight.w500,
       ),
     );
     return Row(
@@ -352,42 +352,62 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     );
   }
 
+  /// Settings section item: a pill like the home navigation menu.
   Widget _listItem({required _TabInfo tab}) {
     return Obx(() {
       bool selected = tab.key == selectedTab.value;
-      return SizedBox(
-        width: _kTabWidth,
-        height: _kTabHeight,
-        child: InkWell(
-          onTap: () {
-            if (selectedTab.value != tab.key) {
-              int index = DesktopSettingPage.tabKeys.indexOf(tab.key);
-              if (index == -1) {
-                return;
+      final primary = Theme.of(context).colorScheme.primary;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: () {
+              if (selectedTab.value != tab.key) {
+                int index = DesktopSettingPage.tabKeys.indexOf(tab.key);
+                if (index == -1) {
+                  return;
+                }
+                controller.jumpToPage(index);
               }
-              controller.jumpToPage(index);
-            }
-            selectedTab.value = tab.key;
-          },
-          child: Row(children: [
-            Container(
-              width: 4,
-              height: _kTabHeight * 0.7,
-              color: selected ? _accentColor : null,
+              selectedTab.value = tab.key;
+            },
+            child: Container(
+              height: _kTabHeight,
+              decoration: BoxDecoration(
+                color: selected
+                    ? MyTheme.tabbar(context).selectedTabBackgroundColor
+                    : null,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 4,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: selected ? primary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Icon(
+                  selected ? tab.selected : tab.unselected,
+                  color: selected ? primary : null,
+                  size: 20,
+                ).marginOnly(left: 10, right: 10),
+                Expanded(
+                  child: Text(
+                    translate(tab.label),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: _kContentFontSize),
+                  ),
+                ),
+              ]),
             ),
-            Icon(
-              selected ? tab.selected : tab.unselected,
-              color: selected ? _accentColor : null,
-              size: 20,
-            ).marginOnly(left: 13, right: 10),
-            Text(
-              translate(tab.label),
-              style: TextStyle(
-                  color: selected ? _accentColor : null,
-                  fontWeight: FontWeight.w400,
-                  fontSize: _kContentFontSize),
-            ),
-          ]),
+          ),
         ),
       );
     });
@@ -1674,7 +1694,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
             );
 
       return ListTile(
-        leading: Icon(icon, color: _accentColor),
+        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
         title: titleWidget,
         enabled: !locked,
         onTap: onTap,
@@ -2463,9 +2483,21 @@ class _AboutState extends State<_About> {
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
               Container(
-                decoration: const BoxDecoration(color: Color(0xFF2c8cff)),
+                // Portal style: tinted card instead of the bright blue block.
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.35)),
+                ),
                 padding:
-                    const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
+                    const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
                 child: SelectionArea(
                     child: Row(
                   children: [
@@ -2475,13 +2507,12 @@ class _AboutState extends State<_About> {
                         children: [
                           Text(
                             'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Tech Pte. Ltd.\n$license',
-                            style: const TextStyle(color: Colors.white),
                           ),
                           Text(
                             translate('Slogan_tip'),
                             style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context).colorScheme.primary),
                           )
                         ],
                       ),

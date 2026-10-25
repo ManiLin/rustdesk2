@@ -163,11 +163,23 @@ class _PeerCardState extends State<_PeerCard>
               children: [
                 getPlatformImage(peer.platform, size: isPortrait ? 38 : 30)
                     .paddingAll(6),
+                // Saved shared password: a readable badge, not a 6px glyph.
                 if (_shouldBuildPasswordIcon(peer))
                   Positioned(
-                    top: 1,
-                    left: 1,
-                    child: Icon(Icons.key, size: 6, color: Colors.white),
+                    top: 3,
+                    left: 3,
+                    child: Tooltip(
+                      message: translate('Password'),
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Icon(Icons.key_rounded,
+                            size: 9, color: Colors.white),
+                      ),
+                    ),
                   ),
               ],
             )),
@@ -180,10 +192,15 @@ class _PeerCardState extends State<_PeerCard>
                 bottomRight: Radius.circular(_tileRadius),
               ),
             ),
+            // Text and the ⋮ button are vertically centred in the tile.
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(children: [
                         getOnline(isPortrait ? 4 : 8, peer.online),
@@ -193,7 +210,8 @@ class _PeerCardState extends State<_PeerCard>
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleSmall,
                         )),
-                      ]).marginOnly(top: isPortrait ? 0 : 2),
+                      ]),
+                      if (name.isNotEmpty || showNote)
                       Row(
                         children: [
                           Flexible(
@@ -234,14 +252,14 @@ class _PeerCardState extends State<_PeerCard>
                         ],
                       ),
                     ],
-                  ).marginOnly(top: 2),
+                  ),
                 ),
                 isPortrait
                     ? checkBoxOrActionMorePortrait(peer)
                     : checkBoxOrActionMoreLandscape(peer, isTile: true)
                         .marginOnly(right: 6),
               ],
-            ).paddingOnly(left: 10.0, top: 3.0),
+            ).paddingOnly(left: 10.0),
           ),
         )
       ],

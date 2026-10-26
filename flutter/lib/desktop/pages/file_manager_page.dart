@@ -284,7 +284,7 @@ class _FileManagerPageState extends State<FileManagerPage>
                                   barRadius: Radius.circular(15),
                                   percent: item.percent,
                                   progressColor: MyTheme.accent,
-                                  backgroundColor: Theme.of(context).hoverColor,
+                                  backgroundColor: homeFillColor(context),
                                   lineHeight: kDesktopFileTransferRowHeight,
                                 ).paddingSymmetric(vertical: 8),
                               ),
@@ -572,8 +572,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
                     ),
-                    color: Theme.of(context).cardColor,
-                    hoverColor: Theme.of(context).hoverColor,
+                    color: homeFillColor(context),
+                    hoverColor: homeHoverFillColor(context),
                     onPressed: () {
                       selectedItems.clear();
                       controller.goBack();
@@ -589,8 +589,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
                     ),
-                    color: Theme.of(context).cardColor,
-                    hoverColor: Theme.of(context).hoverColor,
+                    color: homeFillColor(context),
+                    hoverColor: homeHoverFillColor(context),
                     onPressed: () {
                       selectedItems.clear();
                       controller.goToParentDirectory();
@@ -603,7 +603,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                   padding: const EdgeInsets.symmetric(horizontal: 3.0),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
+                      // Path bar visible on the dark panel (was the panel colour).
+                      color: homeFillColor(context),
                       borderRadius: BorderRadius.all(
                         Radius.circular(8.0),
                       ),
@@ -656,8 +657,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                         colorFilter:
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
-                      color: Theme.of(context).cardColor,
-                      hoverColor: Theme.of(context).hoverColor,
+                      color: homeFillColor(context),
+                      hoverColor: homeHoverFillColor(context),
                     );
                   case LocationStatus.pathLocation:
                     return MenuButton(
@@ -668,7 +669,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
                       color: Theme.of(context).disabledColor,
-                      hoverColor: Theme.of(context).hoverColor,
+                      hoverColor: homeHoverFillColor(context),
                     );
                   case LocationStatus.fileSearchBar:
                     return MenuButton(
@@ -682,8 +683,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                         colorFilter:
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
-                      color: Theme.of(context).cardColor,
-                      hoverColor: Theme.of(context).hoverColor,
+                      color: homeFillColor(context),
+                      hoverColor: homeHoverFillColor(context),
                     );
                 }
               }),
@@ -700,8 +701,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                   colorFilter:
                       svgColor(Theme.of(context).tabBarTheme.labelColor),
                 ),
-                color: Theme.of(context).cardColor,
-                hoverColor: Theme.of(context).hoverColor,
+                color: homeFillColor(context),
+                hoverColor: homeHoverFillColor(context),
               ),
             ],
           ),
@@ -726,8 +727,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                         colorFilter:
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
-                      color: Theme.of(context).cardColor,
-                      hoverColor: Theme.of(context).hoverColor,
+                      color: homeFillColor(context),
+                      hoverColor: homeHoverFillColor(context),
                     ),
                     MenuButton(
                       tooltip: translate('Create Folder'),
@@ -812,8 +813,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                         colorFilter:
                             svgColor(Theme.of(context).tabBarTheme.labelColor),
                       ),
-                      color: Theme.of(context).cardColor,
-                      hoverColor: Theme.of(context).hoverColor,
+                      color: homeFillColor(context),
+                      hoverColor: homeHoverFillColor(context),
                     ),
                     Obx(() => MenuButton(
                           tooltip: translate('Delete'),
@@ -829,8 +830,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                             colorFilter: svgColor(
                                 Theme.of(context).tabBarTheme.labelColor),
                           ),
-                          color: Theme.of(context).cardColor,
-                          hoverColor: Theme.of(context).hoverColor,
+                          color: homeFillColor(context),
+                          hoverColor: homeHoverFillColor(context),
                         )),
                     menu(isLocal: isLocal),
                   ],
@@ -1033,8 +1034,8 @@ class _FileManagerViewState extends State<FileManagerView> {
           "assets/dots.svg",
           colorFilter: svgColor(Theme.of(context).tabBarTheme.labelColor),
         ),
-        color: Theme.of(context).cardColor,
-        hoverColor: Theme.of(context).hoverColor,
+        color: homeFillColor(context),
+        hoverColor: homeHoverFillColor(context),
       ),
     );
   }

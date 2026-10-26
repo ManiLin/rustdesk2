@@ -205,11 +205,30 @@ class _PeerCardState extends State<_PeerCard>
                       Row(children: [
                         getOnline(isPortrait ? 4 : 8, peer.online),
                         Expanded(
+                            // Without a second line a long name wraps onto
+                            // two lines inside the tile instead of being cut.
                             child: Text(
                           peer.alias.isEmpty ? formatID(peer.id) : peer.alias,
+                          maxLines: name.isNotEmpty || showNote ? 1 : 2,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall,
+                          style: name.isNotEmpty || showNote
+                              ? Theme.of(context).textTheme.titleSmall
+                              : Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontSize: 13, height: 1.15),
                         )),
+                        // Tag colours next to the name (were drawn over the
+                        // thumbnail corner).
+                        ..._frontN(peer.tags, 4).map((t) => Container(
+                              width: 7,
+                              height: 7,
+                              margin: const EdgeInsets.only(left: 3),
+                              decoration: BoxDecoration(
+                                color: gFFI.abModel.getCurrentAbTagColor(t),
+                                shape: BoxShape.circle,
+                              ),
+                            )),
                       ]),
                       if (name.isNotEmpty || showNote)
                       Row(
@@ -288,15 +307,14 @@ class _PeerCardState extends State<_PeerCard>
                   child: makeChild(stateGlobal.isPortrait.isTrue, peer),
                 ),
         ),
-        if (colors.isNotEmpty)
-          // Tag dots in the thumbnail corner, so they never cover the name.
-          Obx(() => Positioned(
-                bottom: stateGlobal.isPortrait.isTrue ? 8 : 10,
-                left: stateGlobal.isPortrait.isTrue ? 46 : 38,
-                child: CustomPaint(
-                  painter: TagPainter(radius: 3, colors: colors),
-                ),
-              ))
+        if (colors.isNotEmpty && stateGlobal.isPortrait.isTrue)
+          Positioned(
+            bottom: 8,
+            left: 46,
+            child: CustomPaint(
+              painter: TagPainter(radius: 3, colors: colors),
+            ),
+          )
       ]),
     );
   }

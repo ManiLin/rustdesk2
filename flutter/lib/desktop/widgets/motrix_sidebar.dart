@@ -129,11 +129,18 @@ class MotrixSidebar extends StatelessWidget {
       behavior: HitTestBehavior.translucent,
       onPanStart: (_) => windowManager.startDragging(),
       onDoubleTap: () => toggleMaximize(true),
-      child: SizedBox(
+      child: isCollapsed
+          // Collapsed: app icon on top, the buttons below it.
+          ? Column(mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(height: 36, child: Center(child: loadIcon(24))),
+              const SizedBox(height: 6),
+              toggle,
+              const SizedBox(height: 2),
+              newConnection,
+            ])
+          : SizedBox(
         height: 36,
-        child: isCollapsed
-            ? Center(child: toggle)
-            : Row(
+        child: Row(
                 children: [
                   loadIcon(18).marginOnly(left: 4, right: 8),
                   Expanded(

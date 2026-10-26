@@ -508,7 +508,7 @@ class _CmHeaderState extends State<_CmHeader>
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).hoverColor,
+                      color: homeFillColor(context),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(typeText,
@@ -575,7 +575,7 @@ class _CmHeaderState extends State<_CmHeader>
                   height: 34,
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).hoverColor,
+                    color: homeFillColor(context),
                     shape: BoxShape.circle,
                   ),
                   child: SvgPicture.asset(
@@ -1174,7 +1174,7 @@ class _CmControlPanel extends StatelessWidget {
     } else if (color == Colors.red || color == Colors.redAccent) {
       color = const Color(0xFFE5484D);
     } else if (color == Colors.transparent && border != null) {
-      color = Theme.of(context).hoverColor;
+      color = homeFillColor(context);
       border = Border.all(color: MyTheme.color(context).border ?? Colors.grey);
     }
     if (icon != null) {
@@ -1447,7 +1447,7 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
                                                   item.totalSize,
                                               progressColor: MyTheme.accent,
                                               backgroundColor:
-                                                  Theme.of(context).hoverColor,
+                                                  homeFillColor(context),
                                               lineHeight:
                                                   kDesktopFileTransferRowHeight,
                                             ).paddingSymmetric(vertical: 15),

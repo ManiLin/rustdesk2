@@ -404,7 +404,9 @@ class MyTheme {
     useMaterial3: false,
     brightness: Brightness.light,
     fontFamily: fontFamily,
-    hoverColor: surfaceContainerHighLight,
+    // No default hover overlay: InkWells without a radius painted square
+    // highlights. Rounded widgets draw their own hover with homeFillColor().
+    hoverColor: Colors.transparent,
     scaffoldBackgroundColor: surfaceLight,
     dialogBackgroundColor: surfaceContainerLowLight,
     appBarTheme: AppBarTheme(
@@ -503,7 +505,7 @@ class MyTheme {
     useMaterial3: false,
     brightness: Brightness.dark,
     fontFamily: fontFamily,
-    hoverColor: surfaceContainerHighDark,
+    hoverColor: Colors.transparent,
     // Material 2 default (#424242) is used by dropdown menus; keep them in palette.
     canvasColor: surfaceContainerHighDark,
     scaffoldBackgroundColor: surfaceDark,
@@ -3988,6 +3990,19 @@ Widget homeSurfaceCard(BuildContext context,
   );
 }
 
+/// Fill of chips, pills and icon buttons (surface-container-high); taken from
+/// the theme extension so a local Theme can make it transparent.
+Color homeFillColor(BuildContext context) =>
+    MyTheme.color(context).highlight ?? Colors.transparent;
+
+/// Hover state of [homeFillColor]: slightly lighter (dark) / darker (light).
+Color homeHoverFillColor(BuildContext context) => Color.alphaBlend(
+    (Theme.of(context).brightness == Brightness.dark
+            ? Colors.white
+            : Colors.black)
+        .withOpacity(0.08),
+    homeFillColor(context));
+
 /// Icon buttons of the portal-style home must stay visible at rest:
 /// `surface-container-high` fill with an `outline-variant` border, a lighter
 /// fill on hover, `secondary-container` when [active].
@@ -3995,8 +4010,9 @@ BoxDecoration homeIconButtonDecoration(BuildContext context,
     {bool hover = false, bool active = false, double radius = 10}) {
   final theme = Theme.of(context);
   final base = active
-      ? (MyTheme.tabbar(context).selectedTabBackgroundColor ?? theme.hoverColor)
-      : theme.hoverColor;
+      ? (MyTheme.tabbar(context).selectedTabBackgroundColor ??
+          homeFillColor(context))
+      : homeFillColor(context);
   final overlay = (theme.brightness == Brightness.dark
           ? Colors.white
           : Colors.black)

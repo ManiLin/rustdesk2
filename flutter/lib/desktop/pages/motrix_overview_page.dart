@@ -170,18 +170,7 @@ class _MotrixOverviewPageState extends State<MotrixOverviewPage> {
                 style: TextStyle(fontSize: 13, color: _text.withOpacity(0.78)),
               ),
             ),
-            Container(
-              width: 16,
-              height: 16,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                  color: color.withOpacity(0.25), shape: BoxShape.circle),
-              child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration:
-                      BoxDecoration(color: color, shape: BoxShape.circle)),
-            ),
+            _PulseDot(color: color),
           ]),
         ]);
       }),
@@ -236,7 +225,7 @@ class _MotrixOverviewPageState extends State<MotrixOverviewPage> {
                   height: 40,
                   decoration: BoxDecoration(
                     color: selected
-                        ? Theme.of(context).hoverColor
+                        ? homeFillColor(context)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
@@ -426,7 +415,7 @@ class _MotrixOverviewPageState extends State<MotrixOverviewPage> {
             trailing: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: Theme.of(context).hoverColor,
+                color: homeFillColor(context),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -571,6 +560,59 @@ class _MotrixOverviewPageState extends State<MotrixOverviewPage> {
           ]),
         ]);
       }),
+    );
+  }
+}
+
+/// Status dot with a slowly pulsing halo ("alive" indicator).
+class _PulseDot extends StatefulWidget {
+  final Color color;
+
+  const _PulseDot({required this.color});
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1400))
+    ..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 20,
+      height: 20,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final t = Curves.easeOut.transform(_controller.value);
+          return Stack(alignment: Alignment.center, children: [
+            Container(
+              width: 8 + 12 * t,
+              height: 8 + 12 * t,
+              decoration: BoxDecoration(
+                color: widget.color.withOpacity(0.45 * (1 - t)),
+                shape: BoxShape.circle,
+              ),
+            ),
+            Container(
+              width: 8,
+              height: 8,
+              decoration:
+                  BoxDecoration(color: widget.color, shape: BoxShape.circle),
+            ),
+          ]);
+        },
+      ),
     );
   }
 }

@@ -1163,7 +1163,7 @@ class _TabState extends State<_Tab> with RestorationMixin {
                   color: isSelected
                       ? widget.selectedTabBackgroundColor
                       : (hover.value
-                          ? Theme.of(context).hoverColor
+                          ? homeFillColor(context)
                           : widget.unSelectedTabBackgroundColor),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
@@ -1268,6 +1268,7 @@ class _ActionIconState extends State<ActionIcon> {
       message: widget.message != null ? translate(widget.message!) : "",
       waitDuration: const Duration(seconds: 1),
       child: InkWell(
+        borderRadius: BorderRadius.circular(8),
         hoverColor: widget.isClose
             ? const Color.fromARGB(255, 196, 43, 28)
             : MyTheme.tabbar(context).hoverColor,

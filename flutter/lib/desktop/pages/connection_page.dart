@@ -150,7 +150,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
         height: height,
         padding: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
-          color: Theme.of(context).hoverColor,
+          color: homeFillColor(context),
           borderRadius: BorderRadius.circular(999),
         ),
         child: Obx(() => basicWidget()),
@@ -612,9 +612,14 @@ class _ConnectionPageState extends State<ConnectionPage>
                             height: 1.4,
                           ),
                           maxLines: 1,
+                          textAlignVertical: TextAlignVertical.center,
                           cursorColor:
                               Theme.of(context).textTheme.titleLarge?.color,
                           decoration: InputDecoration(
+                              // Same 40px height as the Connect button.
+                              constraints: widget.homeLayout
+                                  ? const BoxConstraints.tightFor(height: 40)
+                                  : null,
                               // Compact home strip: outlined filled field.
                               filled: widget.homeLayout,
                               counterText: '',

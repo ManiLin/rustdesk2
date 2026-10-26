@@ -200,7 +200,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           padding: const EdgeInsets.only(left: 12, right: 4),
           margin: const EdgeInsets.only(right: 8),
           decoration: BoxDecoration(
-            color: Theme.of(context).hoverColor,
+            color: homeFillColor(context),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: children),
@@ -1516,10 +1516,10 @@ class _HomeNavItemState extends State<_HomeNavItem> {
     final primary = Theme.of(context).colorScheme.primary;
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     final selectedBg = MyTheme.tabbar(context).selectedTabBackgroundColor ??
-        Theme.of(context).hoverColor;
+        homeFillColor(context);
     final background = widget.selected
         ? selectedBg
-        : (_hover ? Theme.of(context).hoverColor : Colors.transparent);
+        : (_hover ? homeFillColor(context) : Colors.transparent);
     final contentColor =
         widget.selected ? textColor : textColor?.withOpacity(0.72);
     return Padding(

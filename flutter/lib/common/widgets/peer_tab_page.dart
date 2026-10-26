@@ -184,7 +184,8 @@ class _PeerTabPageState extends State<PeerTabPage>
     final flatTheme = theme.copyWith(
       hoverColor: Colors.transparent,
       extensions: <ThemeExtension<dynamic>>[
-        MyTheme.color(context).copyWith(border: Colors.transparent),
+        MyTheme.color(context)
+            .copyWith(border: Colors.transparent, highlight: Colors.transparent),
         MyTheme.tabbar(context),
       ],
     );

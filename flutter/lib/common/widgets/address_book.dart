@@ -172,7 +172,7 @@ class _AddressBookState extends State<AddressBook> {
       height: 36,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Theme.of(context).hoverColor,
+        color: homeFillColor(context),
         borderRadius: BorderRadius.circular(999),
       ),
       child: SingleChildScrollView(
@@ -390,7 +390,7 @@ class _AddressBookState extends State<AddressBook> {
         maxHeight: 420,
         padding: const EdgeInsets.symmetric(vertical: 4),
         decoration: BoxDecoration(
-          color: Theme.of(context).hoverColor,
+          color: homeFillColor(context),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
               color: MyTheme.color(context).border ?? Colors.transparent),
@@ -943,7 +943,7 @@ class AddressBookTag extends StatelessWidget {
             decoration: BoxDecoration(
                 color: tags.contains(name)
                     ? gFFI.abModel.getCurrentAbTagColor(name)
-                    : Theme.of(context).hoverColor,
+                    : homeFillColor(context),
                 borderRadius: BorderRadius.circular(999)),
             margin: const EdgeInsets.symmetric(horizontal: 3.0, vertical: 3.0),
             padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 10.0),

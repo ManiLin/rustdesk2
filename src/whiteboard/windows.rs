@@ -5,15 +5,29 @@ use super::{
 };
 use hbb_common::{anyhow::anyhow, log, ResultType};
 use softbuffer::{Context, Surface};
-use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Instant};
+use std::{
+    collections::HashMap,
+    num::NonZeroU32,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tao::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
-    platform::windows::WindowBuilderExtWindows,
+    platform::windows::{WindowBuilderExtWindows, WindowExtWindows},
     window::WindowBuilder,
 };
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
+use winapi::{
+    shared::windef::HWND,
+    um::winuser::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    },
+};
+
+/// How often the overlay re-asserts its topmost position.
+const TOPMOST_INTERVAL: Duration = Duration::from_millis(400);
 
 pub(super) fn create_event_loop() -> ResultType<()> {
     let face = match create_font_face() {
@@ -69,6 +83,8 @@ pub(super) fn create_event_loop() -> ResultType<()> {
         }),
     };
 
+    let hwnd: HWND = window.hwnd() as _;
+    let mut last_topmost = Instant::now();
     let mut ripples: Vec<Ripple> = Vec::new();
     let mut last_cursors: HashMap<String, Cursor> = HashMap::new();
     let mut resized = final_size.is_none();
@@ -129,7 +145,8 @@ pub(super) fn create_event_loop() -> ResultType<()> {
 
                     let mut ripple_paint = Paint::default();
                     // Note: The real color is bgra here.
-                    ripple_paint.set_color_rgba8(64, 64, 255, (alpha * 128.0) as u8);
+                    let rgba = super::argb_to_rgba(ripple.argb);
+                    ripple_paint.set_color_rgba8(rgba.2, rgba.1, rgba.0, (alpha * 128.0) as u8);
                     ripple_paint.anti_alias = true;
 
                     let mut ripple_pb = PathBuilder::new();
@@ -217,6 +234,23 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                 }
             }
             Event::MainEventsCleared => {
+                // Other topmost windows (the incoming connection window, the
+                // taskbar, ...) get above us when activated; keep the remote
+                // cursors on top of everything.
+                if last_topmost.elapsed() >= TOPMOST_INTERVAL {
+                    unsafe {
+                        SetWindowPos(
+                            hwnd,
+                            HWND_TOPMOST,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+                        );
+                    }
+                    last_topmost = Instant::now();
+                }
                 window.request_redraw();
             }
             Event::UserEvent((k, evt)) => match evt {
@@ -225,6 +259,7 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                         ripples.push(Ripple {
                             x: cursor.x,
                             y: cursor.y,
+                            argb: cursor.argb,
                             start_time: Instant::now(),
                         });
                     }

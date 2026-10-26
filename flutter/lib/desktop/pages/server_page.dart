@@ -131,7 +131,9 @@ class ConnectionManagerState extends State<ConnectionManager>
               gFFI.chatModel.showChatPage(MessageKey(client.peerId, client.id));
             });
           }
-          windowManager.setTitle(getWindowNameWithId(client.peerId));
+          // Taskbar: who is connected (AD full name / login), not the ID.
+          windowManager.setTitle(
+              '${client.name.isNotEmpty ? client.name : client.peerId} - ${getWindowName()}');
           gFFI.cmFileModel.updateCurrentClientId(client.id);
         }
       }

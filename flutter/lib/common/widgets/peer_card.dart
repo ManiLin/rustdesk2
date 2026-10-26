@@ -1621,6 +1621,23 @@ void connectInPeerTab(BuildContext context, Peer peer, PeerTabIndex tab,
     showToast(translate('Public key is required for the custom server'));
     return;
   }
+  // Peers of the corporate AD address book get the operator's AD full name
+  // in the login request (see TNURS_AD_NAME_OPTION in client.rs).
+  if (tab == PeerTabIndex.ab) {
+    final presetBook =
+        bind.mainGetOptionSync(key: 'preset-address-book-name').trim();
+    final adBook = (presetBook.isEmpty ? 'corp.tatnefturs.tatar' : presetBook)
+        .toLowerCase();
+    final fromAdBook =
+        gFFI.abModel.currentName.value.trim().toLowerCase() == adBook;
+    final fullId = tagServer != null
+        ? '${peer.id}@${tagServer.connectionArg}'
+        : peer.id;
+    for (final id in peerConfigIds(fullId)) {
+      await bind.mainSetPeerOption(
+          id: id, key: 'tnurs-ad-name', value: fromAdBook ? 'Y' : '');
+    }
+  }
   // The session of a custom-server peer stores its config as `id@server`;
   // keep the address book alias there too, so the tab label shows it.
   if (tab == PeerTabIndex.ab && tagServer != null && peer.alias.isNotEmpty) {

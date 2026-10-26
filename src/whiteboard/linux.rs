@@ -188,6 +188,7 @@ impl ApplicationHandler<(String, CustomEvent)> for WhiteboardApplication {
                         state.ripples.push(Ripple {
                             x: cursor.x,
                             y: cursor.y,
+                            argb: cursor.argb,
                             start_time: Instant::now(),
                         });
                     }
@@ -386,7 +387,8 @@ impl WindowState {
 
             let mut ripple_paint = Paint::default();
             // Note: The real color is bgra here.
-            ripple_paint.set_color_rgba8(64, 64, 255, (alpha * 128.0) as u8);
+            let rgba = super::argb_to_rgba(ripple.argb);
+            ripple_paint.set_color_rgba8(rgba.2, rgba.1, rgba.0, (alpha * 128.0) as u8);
             ripple_paint.anti_alias = true;
 
             let mut ripple_pb = PathBuilder::new();

@@ -153,6 +153,8 @@ pub(super) fn is_light_argb(argb: u32) -> bool {
 pub(super) struct Ripple {
     pub x: RippleFloat,
     pub y: RippleFloat,
+    /// Colour of the clicking user's cursor, so the click wave matches it.
+    pub argb: u32,
     pub start_time: Instant,
 }
 

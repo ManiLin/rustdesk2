@@ -1741,6 +1741,10 @@ struct ConnToken {
     session_id: u64,
 }
 
+/// Peer option set by the UI for peers opened from the corporate AD address
+/// book: the login request then carries the AD display name.
+pub const TNURS_AD_NAME_OPTION: &str = "tnurs-ad-name";
+
 /// Login config handler for [`Client`].
 #[derive(Default)]
 pub struct LoginConfigHandler {
@@ -2700,6 +2704,13 @@ impl LoginConfigHandler {
                             .unwrap_or_default()
                     })
                     .unwrap_or_default();
+        }
+        // Peers opened from the corporate AD address book see the operator's
+        // full name (AD displayName) instead of the login.
+        if self.get_option(TNURS_AD_NAME_OPTION) == "Y" {
+            if let Some(name) = crate::platform::get_active_user_display_name() {
+                display_name = name;
+            }
         }
         if display_name.is_empty() {
             display_name = crate::username();

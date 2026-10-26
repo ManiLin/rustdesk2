@@ -144,7 +144,13 @@ fn draw_cursors(
                                 Ripple::retain_active(ripples);
                                 for ripple in ripples.iter() {
                                     let (radius, alpha) = ripple.get_radius_alpha();
-                                    let color = piet::Color::rgba(1.0, 0.25, 0.25, alpha * 0.5);
+                                    let (r, g, b, _) = super::argb_to_rgba(ripple.argb);
+                                    let color = piet::Color::rgba8(
+                                        r,
+                                        g,
+                                        b,
+                                        (alpha * 0.5 * 255.0) as u8,
+                                    );
                                     let circle =
                                         piet::kurbo::Circle::new((ripple.x, ripple.y), radius);
                                     context.stroke(circle, &color, 2.0);
@@ -288,6 +294,7 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                             let ripple = Ripple {
                                 x: (cursor.x as f64 - window.display_origin.0),
                                 y: (cursor.y as f64 - window.display_origin.1),
+                                argb: cursor.argb,
                                 start_time: Instant::now(),
                             };
                             if let Some(ripples) = window_ripples.get_mut(&window_id) {

@@ -4,6 +4,9 @@ name: Flutter Tag Build 1.4.9
 # Запускается:
 #   1. Вручную (workflow_dispatch) — на выбранной ветке (по умолчанию upgrade-1.4.9).
 #   2. Автоматически при пуше тега 1.4.9* (включая 1.4.9, 1.4.9-1, v1.4.9 и т.п.).
+#   3. Автоматически при каждом пуше в ветку upgrade-1.4.9 (кроме правок только
+#      документации, портала и макетов). Новый пуш отменяет ещё идущую сборку
+#      той же ветки; сборки по тегам не отменяются.
 #
 # Собираются два варианта:
 #   • обычный RustDesk (TnursRemoteDesk) с AD address book / API token
@@ -17,6 +20,18 @@ on:
       - '1.4.9-*'
       - 'v1.4.9'
       - 'v1.4.9-*'
+    branches:
+      - upgrade-1.4.9
+    # Path filters apply to branch pushes only (tags always build).
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'inventory_portal/**'
+      - '.superdesign/**'
+
+concurrency:
+  group: flutter-build-1_4_9-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   run-flutter-tag-1_4_9-build:

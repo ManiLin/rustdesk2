@@ -27,6 +27,9 @@ pub fn get_active_user_display_name() -> Option<String> {
 #[cfg(windows)]
 pub mod win_device;
 
+#[cfg(windows)]
+pub mod win_file_icon;
+
 #[cfg(target_os = "macos")]
 pub mod macos;
 

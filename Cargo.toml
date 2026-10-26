@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk"
-version = "1.4.9-16"
+version = "1.4.9-17"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
@@ -118,6 +118,9 @@ winapi = { version = "0.3", features = [
     "cfgmgr32",
     "ioapiset",
     "winspool",
+    "wingdi",
+    "combaseapi",
+    "objbase",
 ] }
 windows = { version = "0.61", features = [
     "Win32",

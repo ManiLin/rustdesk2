@@ -1194,6 +1194,20 @@ pub fn main_get_inventory_portal_base() -> SyncReturn<String> {
     SyncReturn(base)
 }
 
+/// Windows shell icon (PNG) for a file manager entry; empty = default icon.
+/// `local`: `path` is a local path, otherwise only the remote name is used.
+pub fn main_get_file_icon(path: String, is_dir: bool, local: bool) -> Vec<u8> {
+    #[cfg(windows)]
+    {
+        return crate::platform::win_file_icon::file_icon_png(&path, is_dir, local);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, is_dir, local);
+        Vec::new()
+    }
+}
+
 /// Bearer-токен портала учёта: опция `inventory-report-token`, иначе дефолт сборки.
 pub fn main_get_inventory_portal_token() -> SyncReturn<String> {
     let from_option = get_local_option(config::keys::OPTION_INVENTORY_REPORT_TOKEN.to_owned());

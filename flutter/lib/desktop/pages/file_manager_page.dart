@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:extended_text/extended_text.dart';
 import 'package:flutter_hbb/common/widgets/dialog.dart';
@@ -1194,14 +1195,24 @@ class _FileManagerViewState extends State<FileManagerView> {
                                                         .color
                                                         ?.withOpacity(0.7))
                                                 .paddingAll(4)
-                                            : SvgPicture.asset(
-                                                entry.isFile
-                                                    ? "assets/file.svg"
-                                                    : "assets/folder.svg",
-                                                colorFilter: svgColor(
-                                                    Theme.of(context)
-                                                        .tabBarTheme
-                                                        .labelColor),
+                                            : _ShellIcon(
+                                                path: isLocal
+                                                    ? _joinLocalPath(
+                                                        controller.directory
+                                                            .value.path,
+                                                        entry.name)
+                                                    : entry.name,
+                                                isDir: !entry.isFile,
+                                                local: isLocal,
+                                                fallback: SvgPicture.asset(
+                                                  entry.isFile
+                                                      ? "assets/file.svg"
+                                                      : "assets/folder.svg",
+                                                  colorFilter: svgColor(
+                                                      Theme.of(context)
+                                                          .tabBarTheme
+                                                          .labelColor),
+                                                ),
                                               ),
                                         Expanded(
                                             child: Text(entry.name.nonBreaking,
@@ -1694,4 +1705,85 @@ Widget buildWindowsThisPC(BuildContext context, [TextStyle? textStyle]) {
     SizedBox(width: 10),
     Text(translate('This PC'), style: textStyle)
   ]);
+}
+
+String _joinLocalPath(String dir, String name) {
+  if (dir.isEmpty) return name;
+  final sep = isWindows ? '\\' : '/';
+  return dir.endsWith('\\') || dir.endsWith('/') ? '$dir$name' : '$dir$sep$name';
+}
+
+/// Real Windows shell icon of a file manager entry: every file, and folders
+/// whose icon differs from the default one (Desktop, Downloads, ...).
+/// [fallback] is shown while loading, off Windows, and for plain folders.
+class _ShellIcon extends StatefulWidget {
+  final String path;
+  final bool isDir;
+  final bool local;
+  final Widget fallback;
+
+  const _ShellIcon(
+      {required this.path,
+      required this.isDir,
+      required this.local,
+      required this.fallback});
+
+  /// Decoded once per entry; remote entries are keyed by name.
+  static final Map<String, Uint8List> _cache = {};
+
+  String get _key => '${local ? 'l' : 'r'}|${isDir ? 'd' : 'f'}|$path';
+
+  @override
+  State<_ShellIcon> createState() => _ShellIconState();
+}
+
+class _ShellIconState extends State<_ShellIcon> {
+  Uint8List? _png;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShellIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget._key != widget._key) _load();
+  }
+
+  void _load() {
+    if (!isWindows) return;
+    final key = widget._key;
+    final cached = _ShellIcon._cache[key];
+    if (cached != null) {
+      _png = cached;
+      return;
+    }
+    _png = null;
+    bind
+        .mainGetFileIcon(
+            path: widget.path, isDir: widget.isDir, local: widget.local)
+        .then((png) {
+      _ShellIcon._cache[key] = png;
+      if (mounted && widget._key == key) setState(() => _png = png);
+    }).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final png = _png;
+    if (png == null || png.isEmpty) return widget.fallback;
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: Center(
+        child: Image.memory(png,
+            width: 22,
+            height: 22,
+            filterQuality: FilterQuality.medium,
+            gaplessPlayback: true),
+      ),
+    );
+  }
 }

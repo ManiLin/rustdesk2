@@ -52,3 +52,23 @@ jobs:
       conn-type: "incoming"
       desktop-ui-flavor: "cashdesk"
       inventory-report-url: "https://tnremdeskapi.pxy2.tatnefturs.ru/api/v1/report"
+
+  # After both builds succeeded: keep only the 3 newest versions in the
+  # GitHub releases (old exe/msi/apk/... are deleted). The portal is untouched.
+  prune-old-release-assets:
+    needs:
+      - run-flutter-tag-1_4_9-build
+      - run-flutter-tag-1_4_9-cashdesk-build
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep the 3 newest versions in the releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .github/scripts/prune-release-assets.py
+          "${{ github.repository }}" 1.4.9 3
+          1.4.9 1.4.9-cashdesk upgrade-1.4.9 upgrade-1.4.9-cashdesk

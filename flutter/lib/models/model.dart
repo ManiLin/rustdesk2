@@ -1086,6 +1086,8 @@ class FfiModel with ChangeNotifier {
           hasCancel: hasCancel,
           reconnect: hasRetry ? reconnect : null,
           reconnectTimeout: hasRetry ? _reconnects : null,
+          manualReconnect:
+              !hasRetry && title == "Connection Error" ? reconnect : null,
           onSubmit: onSubmit);
     }
     _timer?.cancel();

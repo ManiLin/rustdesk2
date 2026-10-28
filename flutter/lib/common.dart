@@ -1217,6 +1217,7 @@ void msgBox(SessionID sessionId, String type, String title, String text,
     {bool? hasCancel,
     ReconnectHandle? reconnect,
     int? reconnectTimeout,
+    ReconnectHandle? manualReconnect,
     VoidCallback? onSubmit,
     int? submitTimeout}) {
   dialogManager.dismissAll();
@@ -1332,6 +1333,21 @@ void msgBox(SessionID sessionId, String type, String title, String text,
               : null,
         ));
     buttons.insert(0, button);
+  }
+  // Connection errors without auto-retry (e.g. relay failure): let the user
+  // retry right here instead of finding the peer again.
+  if (manualReconnect != null && reconnect == null) {
+    final enabled = true.obs;
+    buttons.insert(
+        0,
+        Obx(() => dialogButton('Reconnect',
+            onPressed: enabled.isTrue
+                ? () {
+                    enabled.value = false;
+                    manualReconnect(dialogManager, sessionId, false);
+                  }
+                : null,
+            isOutline: true)));
   }
   if (link.isNotEmpty) {
     buttons.insert(0, dialogButton('JumpLink', onPressed: jumplink));

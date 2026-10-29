@@ -146,23 +146,30 @@ class _PeerCardState extends State<_PeerCard>
     return Row(
       mainAxisSize: MainAxisSize.max,
       children: [
-        Container(
-            decoration: BoxDecoration(
-              color: str2color('${peer.id}${peer.platform}', 0x7f),
-              borderRadius: isPortrait
-                  ? BorderRadius.circular(_tileRadius)
-                  : BorderRadius.only(
-                      topLeft: Radius.circular(_tileRadius),
-                      bottomLeft: Radius.circular(_tileRadius),
-                    ),
-            ),
-            alignment: Alignment.center,
+        // Same wallpaper preview as the grid card, cropped to the square.
+        ClipRRect(
+            borderRadius: isPortrait
+                ? BorderRadius.circular(_tileRadius)
+                : BorderRadius.only(
+                    topLeft: Radius.circular(_tileRadius),
+                    bottomLeft: Radius.circular(_tileRadius),
+                  ),
+            child: SizedBox(
             width: isPortrait ? 50 : 42,
             height: isPortrait ? 50 : null,
             child: Stack(
+              fit: StackFit.expand,
               children: [
-                getPlatformImage(peer.platform, size: isPortrait ? 38 : 30)
-                    .paddingAll(6),
+                PeerWallpaper(
+                  peerId: peer.id,
+                  fallback: ColoredBox(
+                      color: str2color('${peer.id}${peer.platform}', 0x7f)),
+                ),
+                Center(
+                  child: getPlatformImage(peer.platform,
+                          size: isPortrait ? 38 : 30)
+                      .paddingAll(6),
+                ),
                 // Saved shared password: a readable badge, not a 6px glyph.
                 if (_shouldBuildPasswordIcon(peer))
                   Positioned(
@@ -182,7 +189,7 @@ class _PeerCardState extends State<_PeerCard>
                     ),
                   ),
               ],
-            )),
+            ))),
         Expanded(
           child: Container(
             decoration: BoxDecoration(

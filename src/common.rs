@@ -2240,6 +2240,22 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 /// Apply permanent password and lock rotation when baked in at build time.
 pub fn apply_build_preset_password() {
     crate::app_build_config::apply_build_server_defaults();
+    // A password left by an older install (another preset or a user-set one)
+    // would shadow the build preset forever, since changing it is disabled.
+    let (preset, preset_salt) = Config::get_preset_password_storage_and_salt();
+    if !preset.is_empty()
+        && preset_salt.is_empty()
+        && !Config::get_local_permanent_password_storage_and_salt()
+            .0
+            .is_empty()
+        && !Config::matches_permanent_password_plain(&preset)
+    {
+        log::info!("Replacing outdated permanent password with the build preset");
+        let salt = Config::get_local_permanent_password_storage_and_salt().1;
+        if let Err(e) = Config::set_permanent_password_storage_for_sync("", &salt) {
+            log::error!("Failed to clear outdated permanent password: {e}");
+        }
+    }
     Config::apply_preset_password_from_build();
 }
 

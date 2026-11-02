@@ -191,28 +191,34 @@ class _PeerTabPageState extends State<PeerTabPage>
     );
     return Row(
       children: [
-        Flexible(
-          child: Text(
-            model.tabTooltip(model.currentTab),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  model.tabTooltip(model.currentTab),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                height: 24,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0E1010) : Colors.black12,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text('${model.currentTabCachedPeers.length}',
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600)),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 10),
-        Container(
-          height: 24,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF0E1010) : Colors.black12,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text('${model.currentTabCachedPeers.length}',
-              style:
-                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        ),
-        const Spacer(),
         if (trailing != null) ...[trailing, const SizedBox(width: 12)],
         Theme(
           data: flatTheme,
